@@ -1,0 +1,6 @@
+<launch>
+    <rosparam param="/walls">{'left': 0.0, 'right': 7.0, 'up': 5.0, 'down': -5.0}</rosparam>
+    <node name="world" pkg="randgen_omni_dataset" type="world">
+        <rosparam command="load" param="/" file="$(find randgen_omni_dataset)/config/landmarks.yaml"/>
+    </node>
+</launch>

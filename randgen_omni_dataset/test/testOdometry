@@ -1,0 +1,76 @@
+#! /usr/bin/env python
+
+import rospy
+import unittest
+import threading
+from randgen_omni_dataset import odometry
+
+LOG_LEVEL = rospy.DEBUG
+INIT_SEED = None
+MSG_TYPE = odometry.customOdometryMsg
+TOPIC = '/OMNI1/genOdometry'
+SERVICE = '/OMNI1/genOdometry/change_state'
+FREQ = 33
+
+
+def odometry_callback(data):
+    rospy.loginfo('New msg at time %s\ntranslation=%f\nrot1=%f\nrot2=%f\nstate=%s' %
+                  (data.header.stamp, data.translation, data.rot1, data.rot2, data.state))
+
+
+def change_states():
+    odom.change_state('WalkForward')
+    odom.change_state('Rotate')
+    odom.change_state('Rotate')
+
+
+def rng():
+    print 'RNG = %f' % odom.get_rand_type('t')
+    print 'RNG = %f' % odom.get_rand_type('r1')
+    print 'RNG for all variables'
+    print odom.get_rand_all()
+    print odom.get_rand_all()
+
+
+class OdometryTestCases(unittest.TestCase):
+    def test_states(self):
+        change_states()
+        with self.assertRaises(KeyError):
+            odom.change_state('NotValid')
+
+        self.assertEqual(odom.get_state(), odom.stateTypes['Rotate'])
+
+    def test_rng(self):
+        rng()
+        with self.assertRaises(KeyError):
+            odom.get_rand_type('z')
+
+if __name__ == '__main__':
+    rospy.init_node('test_odometry', log_level=LOG_LEVEL)
+
+    # Odometry object
+    odom = odometry.Odometry(freq=FREQ, topic=TOPIC, service=SERVICE)
+
+    # Run our tests
+    test_thread = threading.Thread(target=unittest.main)
+    test_thread.start()
+
+    # Odometry loop thread and start
+    odometry_thread = threading.Thread(target=odom.loop)
+    odometry_thread.start()
+
+    # Subscriber to topic
+    sub = rospy.Subscriber(TOPIC, MSG_TYPE, callback=odometry_callback, queue_size=1)
+
+    # Flag odometry to begin loop
+    odom.run(True)
+
+    # Publish in rotate and walkforward modes
+    # odom.change_state('Rotate')
+    # rospy.sleep(rospy.Duration(3))
+    # odom.change_state('WalkForward')
+
+    # Wait for Ctrl+C, after this all daemon threads will be stopped
+    rospy.spin()
+    odom.run(False)
+    odometry_thread.join()

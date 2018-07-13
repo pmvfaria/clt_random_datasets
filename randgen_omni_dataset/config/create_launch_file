@@ -1,0 +1,252 @@
+#! /usr/bin/env python
+
+import argparse
+import math
+import random
+import rospkg
+import sys
+import rospy
+import xml.etree.cElementTree as ET
+from xml.etree import ElementTree
+from xml.dom import minidom
+
+THETA_RANGE = (-math.pi, math.pi)
+PKG = 'randgen_omni_dataset'
+
+
+def prettify(elem):
+    """Return a pretty-printed XML string for the Element.
+    """
+    rough_string = ElementTree.tostring(elem, 'utf-8')
+    reparsed = minidom.parseString(rough_string)
+    return reparsed.toprettyxml(indent="  ")
+
+
+def dist(x1, x2, y1, y2):
+    return math.sqrt(math.pow(x2-x1, 2) + math.pow(y2-y1, 2))
+
+
+class Robot:
+    def __init__(self, r_id, x, y, theta, radius):
+        self.id = r_id
+        self.name = 'omni' + str(self.id)
+        self.x = x
+        self.y = y
+        self.theta = theta
+        self.radius = radius
+
+    def check_collisions(self, r_list):
+        for robot in r_list:
+            if dist(self.x, robot.x, self.y, robot.y) < (2*self.radius + 0.1):
+                # collision detected with robot x
+                return robot.id
+
+        # no collisions detected
+        return -1
+
+    def check_collisions_landmarks(self, lms):
+        lm_id = 0
+        for x, y in lms:
+            if dist(self.x, x, self.y, y) < (self.radius + 0.2):
+                # collision detected with landmark
+                return lm_id
+            lm_id += 1
+
+        # no collision
+        return -1
+
+    def get_dict(self):
+        return {'x': self.x, 'y': self.y, 'theta': self.theta}
+
+
+if __name__ == '__main__':
+
+    random.seed = None
+
+    # parse arguments from command line
+    # need number of robots, world limits, filename, robot radius
+    parser = argparse.ArgumentParser(description='Process arguments to create launch file')
+    parser.add_argument('N', type=int, help='Number of robots desired')
+    parser.add_argument('-R', '--radius', type=float, default=0.5, help='Robot radius to be considered')
+    parser.add_argument('-H', '--height', type=float, default=0.81, help='Robot height (where the sensor is)')
+    parser.add_argument('-t', '--threshold', type=float, default=3.5, help='Distance threshold for landmark and target observations')
+    parser.add_argument('-f', '--file', type=str, default='new.launch', help='Desired filename to be placed in launch directory')
+    parser.add_argument('-l', '--left', type=float, default=-0.0, help='xmin - Left limit to place robots')
+    parser.add_argument('-r', '--right', type=float, default=7.0, help='xmax - Right limit to place robots')
+    parser.add_argument('-u', '--up', type=float, default=5.0, help='ymax - Up limit to place robots')
+    parser.add_argument('-d', '--down', type=float, default=-5.0, help='ymin - Down limit to place robots')
+    parser.add_argument('-ag', '--alpha_gen', type=str, default='0.015, 0.1, 0.5, 0.001', help='Alpha values for generating odometry')
+    parser.add_argument('-aa', '--alpha_alg', type=str, default='0.015, 0.1, 0.5, 0.001', help='Alpha values for the PF-UCLT algorithm')
+    parser.add_argument('-L', '--landmarks_param', type=str, default='/landmarks', help='Parameter with landmarks positions')
+    parser.add_argument('-c', '--landmark_collision', type=lambda s: s.lower() in ['true','t','1','yes'], default='true', help='Use collision and avoidance system for landmarks')
+    parser.add_argument('-o', '--occlusions', type=lambda s: s.lower() in ['true','t','1','yes'], default='true', help='Wheter to use an occlusion model for observations or not')
+    parser.add_argument('-s', '--target_model_stddev', type=float, default=30, help='Standard deviation to use when predicting the target in PF-UCLT')
+    parser.add_argument('-p', '--num_particles', type=int, default='250', help='Number of particles that PF-UCLT will use')
+    parser.add_argument('-ra', '--rate', type=float, default='1', help='Rate at which the rosbag file will play during PF-UCLT')
+    args = parser.parse_args()
+
+    rospy.init_node('config_file_create')
+    if not rospy.has_param(args.landmarks_param):
+        print 'Please load landmark configuration into ' + args.landmarks_param + 'parameter first'
+        print 'rosparam load config/landmarks.yaml'
+        sys.exit(0)
+
+    landmarks = rospy.get_param(args.landmarks_param)
+
+    # create robots
+    robot_list = []
+    for n in range(1, args.N+1):
+        print 'Creating robot %d' % n
+
+        robot = Robot(n, random.uniform(args.left, args.right), random.uniform(args.down, args.up),
+                      random.uniform(*THETA_RANGE), args.radius)
+
+        tries = 0
+        while True:
+            tries += 1
+            if tries > 10000:
+                print 'Max tries of 10000 reached, no success with this configuration'
+                sys.exit(0)
+
+            col_robots = robot.check_collisions(robot_list)
+            if col_robots is not -1:
+                print 'Try #%d - detected collision with robot %d at {%f , %f}' % (
+                    tries, col_robots, robot_list[col_robots - 1].x, robot_list[col_robots - 1].y)
+
+            col_landmarks = robot.check_collisions_landmarks(landmarks)
+            if col_landmarks is not -1:
+                print 'Try #%d - detected collision with landmark %d at {%f , %f}' % (
+                    tries, col_landmarks, landmarks[col_landmarks][0], landmarks[col_landmarks][1])
+
+            if col_robots is -1 and col_landmarks is -1:
+                break
+
+            robot.x = random.uniform(args.left, args.right)
+            robot.y = random.uniform(args.down, args.up)
+            print 'Trying position {%f, %f}' % (robot.x, robot.y)
+
+        # no longer colliding, insert into list and print location
+        robot_list.append(robot)
+        print 'Robot %d created at {%f,%f,%f}' % (n, robot.x, robot.y, robot.theta)
+
+    # robots have been assigned positions
+    # generate a ball anywhere (x, y, z)
+    ball = {'x': random.uniform(args.left, args.right),
+            'y': random.uniform(args.down, args.up),
+            'z': random.uniform(0.5, 3.0)}
+
+    # use rospkg to find the directory of this package
+    rospack = rospkg.RosPack()
+    path = rospack.get_path('randgen_omni_dataset')
+    path += '/launch/' + args.file
+
+    # now write the launch file
+    launch = ET.Element("launch")
+
+    # parameter use_sim_time
+    ET.SubElement(launch, 'param', name='use_sim_time', value='false')
+
+    # parameter PLAYING_ROBOTS
+    ET.SubElement(launch, 'rosparam', param='PLAYING_ROBOTS').text = str([1]*args.N)
+
+    # include the world launch file
+    ET.SubElement(launch, 'include', file='$(find randgen_omni_dataset)/launch/world.launch')
+
+    # ball node
+    ball_el = ET.SubElement(launch, 'node', name='ball', pkg=PKG, type='ball', output='screen')
+    ET.SubElement(ball_el, 'rosparam', param='initial_pose').text = str(ball)
+    ET.SubElement(ball_el, 'param', name='freq_pub', value='100')
+
+    # for all robots
+    for robot in robot_list:
+        # robot node
+        node_robot = ET.SubElement(launch, 'node', name=robot.name, pkg=PKG, type='robot', output='screen')
+        ET.SubElement(node_robot, 'rosparam', param='initial_pose').text = str(robot.get_dict())
+        ET.SubElement(node_robot, 'param', name='radius', value=str(args.radius))
+        ET.SubElement(node_robot, 'param', name='height', value=str(args.height))
+        ET.SubElement(node_robot, 'rosparam', param='alphas').text = '[' + args.alpha_gen + ']'
+        ET.SubElement(node_robot, 'param', name='landmark_collision', value=str(args.landmark_collision))
+        ET.SubElement(node_robot, 'param', name='landmark_obs_threshold', value=str(args.threshold))
+        ET.SubElement(node_robot, 'param', name='target_obs_threshold', value=str(args.threshold))
+        ET.SubElement(node_robot, 'param', name='occlusions', value=str(args.occlusions))
+
+        # robot odometry node
+        node_odometry = ET.SubElement(launch, 'node', name=robot.name+'_odometry', pkg=PKG, type='odometry', output='screen')
+        ET.SubElement(node_odometry, 'param', name='topic', value='/'+robot.name+'/genOdometry')
+
+    # custom msg node
+    ET.SubElement(launch, 'node', name='omni_custom_msg', pkg=PKG, type='omni_custom', output='screen')
+
+    # pretty print the tree to the file in the path variable
+    with open(path, 'w+') as f:
+        f.write(prettify(launch))
+
+    # ---------------------------------- PFUCLT ------------------------------------ #
+    # now generate a suitable launch file for the pfuclt algorithm
+
+    launch = ET.Element('launch')
+
+    # general parameters to be modified
+    ET.SubElement(launch, 'param', name='use_sim_time', value='false')
+    ET.SubElement(launch, 'arg', name='debug', default='false')
+    ET.SubElement(launch, 'arg', name='publish', default='true')
+    ET.SubElement(launch, 'arg', name='rate', default=str(args.rate))
+    ET.SubElement(launch, 'arg', name='particles', default=str(args.num_particles))
+
+    # the performer node
+    node_pfuclt = ET.SubElement(launch, 'node', name='performer',
+                                pkg='pfuclt_omni_dataset', type='pfuclt_omni_dataset', output='screen',
+                                args='--debug $(arg debug) --publish $(arg publish)')
+    ET.SubElement(node_pfuclt, 'param', name='percentage_to_keep', value='50')
+    ET.SubElement(node_pfuclt, 'param', name='velocity_estimator_stack_size', value='10')
+    ET.SubElement(node_pfuclt, 'param', name='predict_model_stddev', value=str(args.target_model_stddev))
+    ET.SubElement(node_pfuclt, 'param', name='particles', value=str(args.num_particles))
+    for robot in robot_list:
+        ET.SubElement(node_pfuclt, 'param', name=robot.name.upper() + '_alpha', value=args.alpha_alg)
+    ET.SubElement(node_pfuclt, 'remap', {'to': '/gtData', 'from': '/gtData_4robotExp'})
+
+    # other parameters
+    ET.SubElement(node_pfuclt, 'rosparam', param='PLAYING_ROBOTS').text = str([1] * args.N)
+    ET.SubElement(node_pfuclt, 'param', name='MAX_ROBOTS', value=str(args.N))
+    ET.SubElement(node_pfuclt, 'param', name='ROB_HT', value=str(args.height))
+    ET.SubElement(node_pfuclt, 'param', name='MY_ID', value='1')
+    ET.SubElement(node_pfuclt, 'param', name='NUM_TARGETS', value='1')
+    ET.SubElement(node_pfuclt, 'param', name='LANDMARK_COV/K1', value='2.0')
+    ET.SubElement(node_pfuclt, 'param', name='LANDMARK_COV/K2', value='0.5')
+    ET.SubElement(node_pfuclt, 'param', name='LANDMARK_COV/K3', value='0.2')
+    ET.SubElement(node_pfuclt, 'param', name='LANDMARK_COV/K4', value='0.5')
+    ET.SubElement(node_pfuclt, 'param', name='LANDMARK_COV/K5', value='0.5')
+    ET.SubElement(node_pfuclt, 'param', name='NUM_LANDMARKS', value='10')
+    ET.SubElement(node_pfuclt, 'param', name='LANDMARKS_CONFIG', value='$(find pfuclt_omni_dataset)/config/landmarks.csv')
+    ET.SubElement(node_pfuclt, 'param', name='USE_CUSTOM_VALUES', value='false')
+
+    # robot initial poses
+    str_pos_init = '['
+    for robot in robot_list:
+        str_pos_init += str(robot.x) + ', ' + str(robot.y) + ', ' + str(robot.theta) + ', '
+    str_pos_init = str_pos_init[:len(str_pos_init)-2]  # remove last comma and whitespace
+    str_pos_init += ']'
+    ET.SubElement(node_pfuclt, 'rosparam', param='POS_INIT').text = str_pos_init
+
+    # particle initial ranges
+    str_particles = '['
+    for robot in robot_list:
+        for var in robot.x, robot.y, robot.theta:
+            str_particles += str(var-0.02) + ',' + str(var+0.02) + ','
+    for var in [ball['x'], ball['y'], ball['z']]:
+        str_particles += str(var-0.02) + ',' + str(var+0.02) + ','
+    str_particles = str_particles[:len(str_particles)-1] + ']'  # last comma becomes ]
+    ET.SubElement(node_pfuclt, 'rosparam', param='CUSTOM_PARTICLE_INIT').text = str_particles
+
+    # path to the new launch file in the pfuclt pkg folder
+    try:
+        path = rospack.get_path('pfuclt_omni_dataset')
+    except rospkg.ResourceNotFound:
+        print 'Didnt find pfuclt package, so the launch file was not generated for it. However you can still generate the data'
+        sys.exit(0)
+    path += '/launch/' + args.file
+
+    # pretty print the tree to the file in the path variable
+    with open(path, 'w+') as f:
+        f.write(prettify(launch))
+

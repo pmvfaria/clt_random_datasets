@@ -1,0 +1,23 @@
+#! /usr/bin/env python
+
+import rospy
+from math import pi
+from randgen_omni_dataset import robot
+
+LOG_LEVEL = rospy.INFO
+
+if __name__ == '__main__':
+
+    # Use a launch file to change the node name
+    rospy.init_node('OMNI_DEFAULT', log_level=LOG_LEVEL)
+    name = rospy.get_name()
+    initial_pose = rospy.get_param('~initial_pose', {'x': 0.5,
+                                                     'y': 2.0,
+                                                     'theta': pi/3.0})
+
+    robot = robot.Robot(initial_pose, name)
+    robot.run(True)
+    try:
+        robot.loop()
+    except rospy.ROSInterruptException:
+        pass
