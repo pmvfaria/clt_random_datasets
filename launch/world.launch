@@ -1,6 +1,5 @@
+<?xml version="1"?>
 <launch>
-    <rosparam param="/walls">{'left': 0.0, 'right': 7.0, 'up': 5.0, 'down': -5.0}</rosparam>
-    <node name="world" pkg="randgen_omni_dataset" type="world">
-        <rosparam command="load" param="/" file="$(find randgen_omni_dataset)/config/landmarks.yaml"/>
-    </node>
+    <rosparam ns="world" command="load" file="$(find clt_random_datasets)/config/world.yaml"/>
+    <node name="world" pkg="clt_random_datasets" type="world"/>
 </launch>

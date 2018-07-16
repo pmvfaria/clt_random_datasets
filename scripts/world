@@ -1,16 +1,14 @@
 #! /usr/bin/env python
 
 import rospy
-from randgen_omni_dataset import landmarks
-from randgen_omni_dataset import walls
+from clt_random_datasets import landmarks, walls
 
 LOG_LEVEL = rospy.INFO
 
 if __name__ == '__main__':
-
     rospy.init_node('world', log_level=LOG_LEVEL)
 
-    landmarks = landmarks.Landmarks(param='/landmarks', topic='/landmarks')
-    walls = walls.Walls(param='/walls', topic='/walls')
+    landmarks = landmarks.Landmarks(param='~landmarks', topic='landmarks')
+    walls = walls.Walls(param='~walls', topic='walls')
 
     rospy.spin()

@@ -1,13 +1,13 @@
 import rospy
 from geometry_msgs.msg import PolygonStamped
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point32
 
 
-class WallCorner(Point):
+class WallCorner(Point32):
     def __init__(self, x, y):
 
         # Call base class init
-        Point.__init__(self)
+        Point32.__init__(self)
 
         # Put our information
         self.x = x
@@ -16,7 +16,7 @@ class WallCorner(Point):
 
 
 class Walls:
-    def __init__(self, param='/walls', topic='/walls'):
+    def __init__(self, param='walls', topic='walls'):
 
         # Get parameter from rosparam server
         assert(isinstance(param, str))

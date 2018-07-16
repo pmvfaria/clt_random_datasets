@@ -3,19 +3,19 @@ import random
 import numpy as np
 import math
 import tf
-from math import fabs
 from geometry_msgs.msg import PointStamped, PoseStamped
+from sys import exit
+from time import time
 
 ACC_GRAVITY = -9.81  # m.s^-2
-PULL_MIN_CHANCE = 0.997
-HOVER_MIN_CHANCE = 0.995
+SECONDS_PER_PULL = 1
+SECONDS_PER_HOVER = 3
 HOVER_TIME = 2
 HOVER_HEIGHT = 0.8
-BASE_FRAME = 'world'
-VEL_PULL = 5
-MAX_VEL_X = 1.0
-MAX_VEL_Y = 1.0
-DISABLE_COLLISIONS = True
+WORLD_FRAME = 'world'
+VEL_PULL = 4
+MAX_VELOCITIES = np.array([1.0, 1.0, 5.0])
+EXPERIMENTAL_ENABLE_COLLISIONS = False
 
 
 def unit_vector(v):
@@ -24,32 +24,31 @@ def unit_vector(v):
 
 
 def check_collision(ball, ball_radius, robot, robot_radius):
-    # type: (list, float, list, float) -> bool
+    # type: (np.array, float, np.array, float) -> bool
+    # This function checks if there is a collision between a ball and a robot given their world positions and radius
 
-    # This function checks if there is a collision between a ball and a robot given relative x,y values
-
-    assert(len(ball) == len(robot) == 2)
-
-    return bool(np.linalg.norm(np.array(robot) - np.array(ball)) <= ball_radius + robot_radius)
+    return np.greater(ball_radius + robot_radius, np.linalg.norm(robot - ball))
 
 
-def velocity_after_hit(v, hit, center):
-    # type: (list, list, list) -> list
-
+def velocity_after_hit(vel_init, hit, center):
+    # type: (np.array, np.array, np.array) -> np.array
     # This function will calculate a new velocity after the ball with velocity v, hits an object at point hit
     # Approach: using the normal vector, from center to hit point, calculate a new velocity based on hit angle
 
-    assert(len(v) == len(hit) == len(center) == 2)
-    vel_init = np.array(v)
-    normal = np.array(hit)-np.array(center)
-    delta = vel_init[0]*normal[1] - vel_init[1]*normal[0]
+    # do it in 2 dimensions only (x,y)
+    vel_init = vel_init[0:2]
+    hit = hit[0:2]
+    center = center[0:2]
 
-    alpha = math.atan2(v[1], v[0])
-    theta = float(delta >= 0) * math.acos(np.inner(unit_vector(vel_init), unit_vector(normal)))
-    beta = math.pi - 2*theta - alpha
+    normal = hit - center
+    delta = vel_init * normal[::-1]
+
+    alpha = np.arctan2(vel_init)
+    theta = float(delta >= 0) * np.arccos(np.inner(unit_vector(vel_init[0:2]), unit_vector(normal)))
+    beta = math.pi - 2 * theta - alpha
 
     norm = np.linalg.norm(vel_init)
-    parts = [norm*math.cos(beta), norm*math.sin(beta)]
+    parts = norm * [math.cos(beta), math.sin(beta)]
 
     return parts
 
@@ -62,36 +61,34 @@ class Ball(object):
     #   - Impulse when ball hits the ground
     #   - Impulse by lifting the ball
 
-    def __init__(self, init_pose=None, freq_model=100, freq_pub=10, radius=0.3):
+    def __init__(self, init_pos=None, freq_model=100, freq_pub=10, radius=0.3):
 
         # initiate seed
-        random.seed = None
-        random.jumpahead(freq_model+freq_pub)
+        random.seed = time()
 
-        # parameters: walls
         try:
-            self.walls = rospy.get_param('/walls')
-            playing_robots = rospy.get_param('PLAYING_ROBOTS')
+            self.walls = rospy.get_param('/world/walls')  # type: dict
+            num_robots = rospy.get_param('/num_robots')   # type: int
         except rospy.ROSException, err:
             rospy.logerr('Error in parameter server - %s', err)
-            raise
+            exit(1)
         except KeyError, err:
             rospy.logerr('Value of %s not set', err)
-            raise
+            exit(1)
 
         # initial pose
-        if init_pose is None:
-            init_pose = {'x': 0, 'y': 0, 'z': 1}
-        self.pose = init_pose
-        assert len(self.pose) is 3
+        if init_pos is None:
+            init_pos = [0, 0, 1]
+        self.pos = np.array(init_pos, dtype=float)
+        assert len(self.pos) == 3
 
         # radius
         self.radius = radius
         assert isinstance(radius, float)
 
         # velocities and flags
-        self.pose['vx'] = self.pose['vy'] = self.pose['vz'] = 0.0
-        self.flag_hit_ground = False
+        self.vel = np.array([0, 0, 0], dtype=float)
+        self.flag_hit_ground = True
         self.flag_stop = False
         self.flag_hover = False
         self.virtual_ground = self.radius / 2.0
@@ -100,14 +97,18 @@ class Ball(object):
         self.timer_hover = None
 
         # publishers
-        self.pub_gt_rviz = rospy.Publisher('/target/simPose', PointStamped, queue_size=1)
+        self.pub_gt_rviz = rospy.Publisher('~sim_pose', PointStamped, queue_size=int(freq_pub))
 
         # model rate
         self.rate_model = rospy.Rate(freq_model)
         self.t = 1.0 / freq_model
 
+        # calculate pull and hover chances from the given configuration and model simulation rate
+        self.pull_chance = self.t / SECONDS_PER_PULL
+        self.hover_chance = self.t / SECONDS_PER_HOVER
+
         # timer to publish
-        self.period_pub = 1.0 / freq_pub
+        self.period_pub = 1.0 / freq_pub  # is transformed to int afterwards
         self.timer_pub = None
 
         # set not running
@@ -115,47 +116,38 @@ class Ball(object):
 
         # GT pose
         self.msg_GT_rviz = PointStamped()
-        self.msg_GT_rviz.header.frame_id = BASE_FRAME
+        self.msg_GT_rviz.header.frame_id = WORLD_FRAME
 
         # TF transformer
         self.listener = tf.TransformListener()
 
         # robots list
-        list_ctr = 0
-        self.robots = list()
-        for idx, running in enumerate(playing_robots):
-            idx += 1
-            idx_s = str(idx)
-            # add to list if it's running
-            if running == 0:
-                continue
+        self.robots = [self.create_robot(idx) for idx in range(num_robots)]
 
-            robot_name = 'omni' + idx_s
+        # TODO enable waiting for robots
+        # for robot in self.robots:
+        #     # wait for odometry service to be available before continue
+        #     rospy.wait_for_service('{0}/sim_odometry/change_state'.format(robot['name']), timeout=5)
 
-            # find the radius from parameter server
-            radius_param = robot_name + '/radius'
-            if not rospy.has_param(radius_param):
-                rospy.logwarn('Ball collisions will not work since robot radius is not defined')
-                break
-            radius_value = rospy.get_param(radius_param)
-
-            # add subscriber to its pose, with an additional argument concerning the list position
-            rospy.Subscriber(robot_name + '/simPose', PoseStamped, self.robots_callback, list_ctr)
-
-            # assuming the frame is the same as robot name, append a new dict to the list of robots
-            robot_dict = dict(name=robot_name, radius=radius_value, frame=robot_name)
-            self.robots.append(robot_dict)
-
-            # wait for odometry service to be available before continue
-            rospy.wait_for_service(robot_name + '/genOdometry/change_state')
-            list_ctr += 1
+    def create_robot(self, idx):
+        name = 'robot' + str(idx)
+        return {
+            'name'  : name,
+            # parameter needs to exist unless caller handles exception
+            'radius': rospy.get_param('/robots/' + name + '/radius'),
+            'frame' : name + '_base_link',
+            # extra idx parameter so that we can know which robot it is in the callbacks
+            'sub'   :
+                rospy.Subscriber(name + '/sim_pose', PoseStamped, self.robots_callback, idx)
+                if EXPERIMENTAL_ENABLE_COLLISIONS else None
+        }
 
     def pub_callback(self, event):
         # publish as rviz msg
         self.msg_GT_rviz.header.stamp = rospy.Time.now()
-        self.msg_GT_rviz.point.x = self.pose['x']
-        self.msg_GT_rviz.point.y = self.pose['y']
-        self.msg_GT_rviz.point.z = self.pose['z']
+        self.msg_GT_rviz.point.x = self.pos[0]
+        self.msg_GT_rviz.point.y = self.pos[1]
+        self.msg_GT_rviz.point.z = self.pos[2]
 
         try:
             self.pub_gt_rviz.publish(self.msg_GT_rviz)
@@ -167,87 +159,82 @@ class Ball(object):
         if self.is_running == flag:
             return
 
-            # update state
+        # update state
         self.is_running = flag
 
         if self.is_running:
-            self.timer_pub = rospy.Timer(rospy.Duration(self.period_pub), self.pub_callback)
+            self.timer_pub = rospy.Timer(rospy.Duration.from_sec(self.period_pub), self.pub_callback)
         else:
             self.timer_pub.shutdown()
 
     @property
     def ground_hit(self):
-        return self.pose['z'] + self.pose['vz'] * self.t - self.radius < self.virtual_ground
+        return self.pos[2] < self.virtual_ground
 
     @property
     def above_ground(self):
-        return self.pose['vz'] > 0.0 and self.pose['z'] - self.radius > self.virtual_ground
+        return self.vel[2] > 0.0 and self.pos[2] > self.virtual_ground
 
     def hover_callback(self, event):
-        self.flag_hover = False
         self.virtual_ground = self.radius / 2.0
+        self.flag_hover = False
         self.flag_stop = False
 
     def model_once(self):
         dt = self.t
 
         # Random acceleration added to velocity of x,y
-        ax = random.gauss(0, 2)
-        ay = random.gauss(0, 2)
-        self.pose['vx'] += ax * dt
-        self.pose['vy'] += ay * dt
+        acc = np.array([random.gauss(0, 3), random.gauss(0, 3)])
+        self.vel[0:2] += acc * dt
 
         # Update x and y with cinematic model
-        self.pose['x'] += self.pose['vx'] * dt + 0.5 * ax * dt * dt
-        self.pose['y'] += self.pose['vy'] * dt + 0.5 * ay * dt * dt
+        self.pos[0:2] += self.vel[0:2] * dt + 0.5 * acc * dt * dt
 
-        # Check if the sides are hit
-        if self.pose['x'] < self.walls['left'] or self.pose['x'] > self.walls['right']:
-            self.pose['vx'] *= -1.0
+        # Check if the walls are hit
+        if self.pos[0] < self.walls['left'] or self.pos[0] > self.walls['right']:
+            self.vel[0] *= -1.0
 
-        if self.pose['y'] < self.walls['down'] or self.pose['y'] > self.walls['up']:
-            self.pose['vy'] *= -1.0
+        if self.pos[1] < self.walls['down'] or self.pos[1] > self.walls['up']:
+            self.vel[1] *= -1.0
 
         # Check max velocities
-        if fabs(self.pose['vx']) > MAX_VEL_X:
-            self.pose['vx'] *= 0.8
-        if fabs(self.pose['vy']) > MAX_VEL_Y:
-            self.pose['vy'] *= 0.8
+        self.vel = np.sign(self.vel) * np.minimum(np.fabs(self.vel), MAX_VELOCITIES)
 
-        # Should we pull? Low chance
-        elif not self.flag_hover and random.random() > PULL_MIN_CHANCE:
-            # Pull!
-            self.pose['vz'] = VEL_PULL
-            self.flag_stop = False
-            rospy.logdebug('Ball pulled')
+        # If ball is going up, do not pull or hover
+        if self.vel[2] <= 0:
+            # Should we pull? Low chance
+            if not self.flag_hover and random.random() <= self.pull_chance:
+                # Pull!
+                self.vel[2] = VEL_PULL
+                self.flag_stop = False
+                rospy.logdebug('Ball pulled')
 
-        # Should we hover? Low chance
-        elif not self.flag_hover and random.random() > HOVER_MIN_CHANCE:
-            # Hover for a while
-            self.flag_stop = False
-            self.pose['vz'] = VEL_PULL
-            self.virtual_ground = HOVER_HEIGHT
-            self.flag_hover = True
-            self.timer_hover = rospy.Timer(rospy.Duration(HOVER_TIME), self.hover_callback, oneshot=True)
-            rospy.logdebug('Hovering for %ds' % HOVER_TIME)
+            # Should we hover? Low chance
+            elif not self.flag_hover and random.random() <= self.hover_chance:
+                # Hover for a while
+                self.flag_stop = False
+                self.vel[2] = VEL_PULL
+                self.virtual_ground = HOVER_HEIGHT
+                self.flag_hover = True
+                self.timer_hover = rospy.Timer(rospy.Duration(HOVER_TIME), self.hover_callback, oneshot=True)
+                rospy.logdebug('Hovering for %ds' % HOVER_TIME)
 
         # Will the ball hit the ground?
         if not self.flag_hit_ground and self.ground_hit:
             # Ball will hit the ground, invert velocity and damp it
-            self.pose['vz'] *= -0.7
+            self.vel[2] *= -0.7
             self.flag_hit_ground = True
             rospy.logdebug('Hit ground')
 
         # Should the ball just stop in z?
-        elif self.flag_hit_ground and self.pose['vz'] < 0.0 and self.pose['z'] < self.virtual_ground:
-            self.pose['vz'] = 0.0
+        if self.flag_hit_ground and self.vel[2] < 0.0 and self.pos[2] < self.virtual_ground:
+            self.vel[2] = 0.0
             self.flag_stop = True
 
         # Update velocity and position
         if not self.flag_stop:
-            self.pose['vz'] += ACC_GRAVITY * dt
-            self.pose['z'] += self.pose['vz'] * dt + 0.5 * ACC_GRAVITY * dt * dt
-
+            self.pos[2] += self.vel[2] * dt + 0.5 * ACC_GRAVITY * dt * dt
+            self.vel[2] += ACC_GRAVITY * dt
         # Check to remove hit ground flag
         if self.flag_hit_ground and self.above_ground:
             self.flag_hit_ground = False
@@ -264,23 +251,18 @@ class Ball(object):
 
     def robots_callback(self, msg, list_id):
         # Until more debug, disable this
-        if DISABLE_COLLISIONS:
+        if not EXPERIMENTAL_ENABLE_COLLISIONS:
             return
 
         try:
-            translation, rotation = self.listener.lookupTransform(BASE_FRAME, msg.header.frame_id, rospy.Time())
+            translation, rotation = self.listener.lookupTransform(WORLD_FRAME, msg.header.frame_id, rospy.Time())
+            robot_pos = np.array(translation)
 
-            if check_collision([self.pose['x'], self.pose['y']], self.radius,
-                               [translation[0], translation[1]], self.robots[list_id]['radius']):
+            if check_collision(self.pos, self.radius,
+                               robot_pos, self.robots[list_id]['radius']):
                 rospy.logdebug('Ball hit')
-                new_vel = velocity_after_hit([self.pose['vx'], self.pose['vy']],
-                                             [self.pose['x'], self.pose['y']],
-                                             [translation[0], translation[1]])
-
-                self.pose['vx'] = new_vel[0]
-                self.pose['vy'] = new_vel[1]
+                self.vel[0:2] = velocity_after_hit(self.vel, self.pos, robot_pos)
 
         except tf.Exception, err:
             rospy.logwarn('TF Error - %s', err)
             return
-

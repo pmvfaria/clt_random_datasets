@@ -102,7 +102,7 @@ if __name__ == '__main__':
     rospy.init_node('config_file_create')
     if not rospy.has_param(args.landmarks_param):
         print 'Please load landmark configuration into ' + args.landmarks_param + 'parameter first'
-        print 'rosparam load config/landmarks.yaml'
+        print 'rosparam load config/world.yaml'
         sys.exit(0)
 
     landmarks = rospy.get_param(args.landmarks_param)
