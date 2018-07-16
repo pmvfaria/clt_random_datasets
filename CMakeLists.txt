@@ -40,5 +40,5 @@ catkin_install_python(
 		scripts/odometry
 		scripts/world
 		scripts/omni_custom
-	DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
-
+	DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
