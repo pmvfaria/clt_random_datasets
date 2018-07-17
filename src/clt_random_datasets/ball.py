@@ -124,11 +124,6 @@ class Ball(object):
         # robots list
         self.robots = [self.create_robot(idx) for idx in range(num_robots)]
 
-        # TODO enable waiting for robots
-        # for robot in self.robots:
-        #     # wait for odometry service to be available before continue
-        #     rospy.wait_for_service('{0}/sim_odometry/change_state'.format(robot['name']), timeout=5)
-
     def create_robot(self, idx):
         name = 'robot' + str(idx)
         return {
@@ -154,7 +149,7 @@ class Ball(object):
         except rospy.ROSException, err:
             rospy.logdebug('ROSException - %s', err)
 
-    def run(self, flag):
+    def run(self, flag, wait_for_robots=True):
         # check if flag is different from current
         if self.is_running == flag:
             return
@@ -164,6 +159,12 @@ class Ball(object):
 
         if self.is_running:
             self.timer_pub = rospy.Timer(rospy.Duration.from_sec(self.period_pub), self.pub_callback)
+
+            if wait_for_robots:
+                for robot in self.robots:
+                    # wait for odometry service to be available before continue
+                    rospy.wait_for_service('{0}/sim_odometry/change_state'.format(robot['name']), timeout=3)
+
         else:
             self.timer_pub.shutdown()
 
