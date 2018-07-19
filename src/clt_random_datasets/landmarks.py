@@ -21,7 +21,7 @@ class Landmark(Marker):
         self.scale.x = 0.3
         self.scale.y = 0.3
         self.scale.z = 1
-        self.color.a = 0.25
+        self.color.a = 0.4
         self.color.r = 1.0
         self.color.g = 0.5
         self.color.b = 0.3

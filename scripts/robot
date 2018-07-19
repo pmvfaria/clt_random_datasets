@@ -2,22 +2,32 @@
 
 import rospy
 from math import pi
-from randgen_omni_dataset import robot
+from clt_random_datasets import robot
+from clt_random_datasets import odometry
 
-LOG_LEVEL = rospy.INFO
+LOG_LEVEL = rospy.DEBUG
+ODOMETRY_FREQ_DEFAULT = 50
 
 if __name__ == '__main__':
 
     # Use a launch file to change the node name
-    rospy.init_node('OMNI_DEFAULT', log_level=LOG_LEVEL)
-    name = rospy.get_name()
-    initial_pose = rospy.get_param('~initial_pose', {'x': 0.5,
-                                                     'y': 2.0,
-                                                     'theta': pi/3.0})
+    rospy.init_node('ROBOT_DEFAULT', log_level=LOG_LEVEL)
 
-    robot = robot.Robot(initial_pose, name)
+    name = rospy.get_name().split(rospy.get_namespace())[-1]
+    initial_pose = rospy.get_param('~initial_pose', [0.5, 2.0, pi/3])
+
+    odometry_freq = rospy.get_param('~odometry_frequency', ODOMETRY_FREQ_DEFAULT)
+
+    odometry = odometry.Odometry(freq=odometry_freq)
+    robot = robot.Robot(initial_pose, name=name)
+
+    odometry.run(True)
     robot.run(True)
+
     try:
-        robot.loop()
+        while not rospy.is_shutdown():
+            odometry.loop_once()
+            robot.loop_once()
+            odometry.rate.sleep()
     except rospy.ROSInterruptException:
         pass

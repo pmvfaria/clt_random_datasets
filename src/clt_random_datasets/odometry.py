@@ -1,22 +1,22 @@
 import rospy
 import random
 import std_msgs.msg
-from randgen_omni_dataset.msg import CustomOdometry as customOdometryMsg
-from randgen_omni_dataset.srv import SendString, SendStringResponse
+from clt_random_datasets.msg import CustomOdometry as customOdometryMsg
+from clt_random_datasets.srv import SendString, SendStringResponse
 
-LEFT_T_WF = 0.010
-RIGHT_T_WF = 0.015
+LEFT_T_WF = 0.020
+RIGHT_T_WF = 0.030
 MEAN_R1_WF = 0.000
-STD_R1_WF = 0.001
+STD_R1_WF = 0.002
 MEAN_R2_WF = 0.000
-STD_R2_WF = 0.001
+STD_R2_WF = 0.002
 
 MEAN_T_R = 0
-STD_T_R = 0.0001
-LEFT_R1_R = 0.0035
-RIGHT_R1_R = 0.0085
-LEFT_R2_R = 0.0030
-RIGHT_R2_R = 0.0090
+STD_T_R = 0.0003
+LEFT_R1_R = 0.00850
+RIGHT_R1_R = 0.01105
+LEFT_R2_R = 0.00900
+RIGHT_R2_R = 0.01110
 
 
 class AbstractOdometryStateVar(object):
@@ -69,27 +69,25 @@ class Odometry(object):
     #   - Rotate: little variation in translation, high in rotation
     #   - WalkForward: little variation in rotation, high in translation
     # You can use the Odometry object in 2 ways:
-    #   - It implements rate.sleep() in its loop which will block if ran in main thread, or can be multi-threaded
+    #   - It uses rate.sleep() in its loop which will block if ran in main thread, or can be multi-threaded
+    #   - Calling loop_once() followed by rate.sleep()
     #   - Using the get_rand_all, build_msg, and publisher.publish methods to do at your own pace
 
-    stateTypes = dict(WalkForward=0, Rotate=1)
-    invStateTypes = {0: 'WalkFoward', 1: 'Rotate'}
+    stateTypes = dict(WalkForward=0, Rotate=1, RotateInv=2)
+    invStateTypes = {0: 'WalkFoward', 1: 'Rotate', 2: 'RotateInv'}
     varTypes = dict(t=0, r1=1, r2=2)
 
-    def __init__(self, seed=None, topic='/odometry/', service='/odometry/change_state', freq=10):
-        # type: (int, str, str, int) -> None
+    def __init__(self, seed=None, freq=10):
+        # type: (int, int) -> None
         """
-
         :param seed: if specified, the RNG seed will be fixed (useful for debugging)
-        :param topic: topic to publish odometry to
-        :param service: service name to advertise to interface with changing odometry states
         :param freq: if the object loop method is used, this will be the rate of publishing messages
         """
 
         # state of the odometry generation
         self._state = Odometry.stateTypes['WalkForward']
 
-        # initiate random seed with current system time
+        # initiate random seed with current system time if nothing given
         random.seed(seed)
 
         # each variable is a list corresponding to the state
@@ -97,26 +95,31 @@ class Odometry(object):
                             GaussianOdometryStateVar('r1',  'r1_WalkForward',   MEAN_R1_WF, STD_R2_WF),
                             GaussianOdometryStateVar('r2',  'r2_WalkForward',   MEAN_R2_WF, STD_R2_WF)]
 
-        self.rotate = [ GaussianOdometryStateVar('t',   't_Rotate',     MEAN_T_R,   STD_T_R),
-                        UniformOdometryStateVar('r1',   'r1_Rotate',    LEFT_R1_R,  RIGHT_R1_R),
-                        UniformOdometryStateVar('r2',   'r2_Rotate',    LEFT_R2_R,  RIGHT_R2_R)]
+        self.rotate = [GaussianOdometryStateVar('t',   't_Rotate',     MEAN_T_R,   STD_T_R),
+                       UniformOdometryStateVar('r1',   'r1_Rotate',    LEFT_R1_R,  RIGHT_R1_R),
+                       UniformOdometryStateVar('r2',   'r2_Rotate',    LEFT_R2_R,  RIGHT_R2_R)]
+
+        self.rotate_inv = [GaussianOdometryStateVar('t',   't_RotateInv',     -MEAN_T_R,   STD_T_R),
+                           UniformOdometryStateVar('r1',   'r1_RotateInv',    -RIGHT_R1_R, -LEFT_R1_R),
+                           UniformOdometryStateVar('r2',   'r2_RotateInv',    -RIGHT_R2_R, -LEFT_R2_R)]
 
         # get a list with all variables
         self.var_list = []
         self.var_list.insert(Odometry.stateTypes['WalkForward'], self.walkForward)
         self.var_list.insert(Odometry.stateTypes['Rotate'], self.rotate)
+        self.var_list.insert(Odometry.stateTypes['RotateInv'], self.rotate_inv)
 
         # list of all values
         self.values = dict()
 
         # specific robot's odometry topic name
-        self.topic = str(topic)
+        topic = '~sim_odometry'
 
         # publisher of odometry values
         self.publisher = rospy.Publisher(topic, customOdometryMsg, queue_size=100)
 
         # service to change state
-        self.service = rospy.Service(service, SendString, self.service_callback)
+        self.service = rospy.Service('{0}/change_state'.format(topic), SendString, self.service_callback)
 
         # rate to publish odometry
         self.rate = rospy.Rate(freq)
@@ -146,10 +149,16 @@ class Odometry(object):
         # type: (str) -> None
         try:
             if Odometry.stateTypes[new_state] == self._state:
-                rospy.logdebug('Setting new state to the same state %s' % new_state)
+                rospy.logdebug('Desired odometry state is already %s' % new_state)
             else:
+                # 50/50 chance of inverting rotation if that is the new state
+                if new_state == 'Rotate':
+                    if random.randint(0, 1):
+                        new_state = 'RotateInv'
+
                 rospy.logdebug('Changed odometry state to %s' % new_state)
                 self._state = Odometry.stateTypes[new_state]
+
         except KeyError:
             rospy.logfatal('Trying to set odometry state to %s not accepted' % new_state)
             raise
@@ -206,8 +215,10 @@ class Odometry(object):
 
     def loop_once(self, stamp=None):
         # type: (rospy.Time) -> None
-        # perform one loop without sleeping
+        if not self.is_running:
+            return
 
+        # perform one loop without sleeping
         # generate new random numbers according to configuration
         self.get_rand_all()
 
@@ -222,22 +233,7 @@ class Odometry(object):
             rospy.logdebug('ROS shutdown while publishing odometry')
             pass
 
-    def loop(self):
-        # type: () -> None
-
-        # as long as ROS is running
-        while not rospy.is_shutdown():
-            # if not running stay in this loop
-            while not self.is_running:
-                self.rate.sleep()
-
-            # perform one loop
-            self.loop_once()
-
-            # sleep for the rest of the cycle
-            self.rate.sleep()
-
     def run(self, flag):
         # type: (bool) -> None
         self.is_running = flag
-        rospy.logdebug('Odometry %s' % 'started' if flag is True else 'stopped')
+        rospy.logdebug('Odometry {0}'.format('started' if flag is True else 'stopped'))

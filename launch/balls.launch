@@ -1,7 +1,7 @@
 <?xml version="1"?>
 <launch>
     <group ns="targets">
-        <node name="target1" pkg="clt_random_datasets" type="ball"/>
+        <node name="target1" pkg="clt_random_datasets" type="ball" output="screen"/>
         <node name="target2" pkg="clt_random_datasets" type="ball"/>
         <node name="target3" pkg="clt_random_datasets" type="ball"/>
         <node name="target4" pkg="clt_random_datasets" type="ball"/>

@@ -10,10 +10,12 @@ if __name__ == '__main__':
 
     rospy.init_node('ball', log_level=LOG_LEVEL)
 
+    name = rospy.get_name().split(rospy.get_namespace())[-1]
+
     init_pose = rospy.get_param('~initial_pose', [0, 0, 0])
     freq_pub = rospy.get_param('~freq_pub', FREQ_PUB_DEF)
 
-    ball = ball.Ball(init_pos=init_pose, freq_pub=FREQ_PUB_DEF)
+    ball = ball.Ball(init_pos=init_pose, freq_pub=FREQ_PUB_DEF, name=name)
     ball.run(True)
     try:
         ball.loop()

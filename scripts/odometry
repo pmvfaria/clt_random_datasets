@@ -1,28 +1,20 @@
-#! /usr/bin/env python
-
-import rospy
-from randgen_omni_dataset import odometry
-
-LOG_LEVEL = rospy.INFO
-INIT_SEED = None
-FREQ_DEF = 33
-
-if __name__ == '__main__':
-    # Init node - set in launch file for a different name
-    rospy.init_node('OMNI_DEFAULT_ODOMETRY', log_level=LOG_LEVEL)
-
-    # Get useful parameters
-    topic = rospy.get_param('~topic')
-    freq = rospy.get_param('~freq', FREQ_DEF)
-
-    service = topic + '/change_state'
-
-    # Odometry object
-    odom = odometry.Odometry(freq=freq, topic=topic, service=service)
-    odom.run(True)
-
-    # Start odom loop, will exit when shutdown
-    try:
-        odom.loop()
-    except rospy.ROSInterruptException:
-        pass
+# #! /usr/bin/env python
+#
+# import rospy
+# from randgen_omni_dataset import odometry
+#
+# if __name__ == '__main__':
+#     # Get useful parameters
+#     topic = rospy.get_param('~topic')
+#
+#     service = topic + '/change_state'
+#
+#     # Odometry object
+#     odom = odometry.Odometry(freq=freq, topic=topic, service=service)
+#     odom.run(True)
+#
+#     # Start odom loop, will exit when shutdown
+#     try:
+#         odom.loop()
+#     except rospy.ROSInterruptException:
+#         pass

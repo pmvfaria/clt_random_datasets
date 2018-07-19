@@ -1,11 +1,14 @@
 import rospy
 import random
 import numpy as np
-import math
 import tf
-from geometry_msgs.msg import PointStamped, PoseStamped
+import tf2_ros
+from geometry_msgs.msg import PointStamped
 from sys import exit
-from time import time
+from copy import deepcopy
+from enum import Enum
+
+import robot as robot_imp
 
 ACC_GRAVITY = -9.81  # m.s^-2
 SECONDS_PER_PULL = 1
@@ -13,9 +16,12 @@ SECONDS_PER_HOVER = 3
 HOVER_TIME = 2
 HOVER_HEIGHT = 0.8
 WORLD_FRAME = 'world'
+RADIUS_DEFAULT = 0.3
 VEL_PULL = 4
+DAMP_FACTOR = 0.7
 MAX_VELOCITIES = np.array([1.0, 1.0, 5.0])
-EXPERIMENTAL_ENABLE_COLLISIONS = False
+EXPERIMENTAL_ENABLE_COLLISIONS = True
+Collision = Enum('collision', 'none side top')
 
 
 def unit_vector(v):
@@ -23,34 +29,115 @@ def unit_vector(v):
     return v / np.linalg.norm(v)
 
 
-def check_collision(ball, ball_radius, robot, robot_radius):
-    # type: (np.array, float, np.array, float) -> bool
+def check_collision(ball_center_3d, ball_radius, robot_center_2d, robot_radius, robot_height):
+    # type: (np.array, float, np.array, float, float) -> Collision
     # This function checks if there is a collision between a ball and a robot given their world positions and radius
 
-    return np.greater(ball_radius + robot_radius, np.linalg.norm(robot - ball))
+    # In 2D there is a contact point
+    if np.greater(ball_radius + robot_radius, np.linalg.norm(robot_center_2d - ball_center_3d[0:2])):
+        ball_bottom_height = ball_center_3d[2] - ball_radius
+
+        # If z coord of ball is at most 2cm above robot, we consider a collision from the top
+        if robot_height <= ball_bottom_height + 0.02:
+            return Collision.top
+        # If it's below that
+        elif robot_height > ball_bottom_height + 0.02:
+            return Collision.side
+        # If it's way above no collision then
+        else:
+            return Collision.none
+    else:
+        return Collision.none
 
 
-def velocity_after_hit(vel_init, hit, center):
-    # type: (np.array, np.array, np.array) -> np.array
+def velocity_after_side_hit(vel_init, ball, robot, additional_speed=0.0):
+    # type: (np.array, np.array, np.array, float) -> np.array
     # This function will calculate a new velocity after the ball with velocity v, hits an object at point hit
     # Approach: using the normal vector, from center to hit point, calculate a new velocity based on hit angle
+    # 2D top down view, Z velocity will be constant since the ball is hitting the robot from the side
 
-    # do it in 2 dimensions only (x,y)
-    vel_init = vel_init[0:2]
-    hit = hit[0:2]
-    center = center[0:2]
+    normal = ball - robot
+    vnorm = np.linalg.norm(vel_init)
 
-    normal = hit - center
-    delta = vel_init * normal[::-1]
+    # closed form vr = vi - 2(vi.n)n
+    vel_after_normalized = \
+        unit_vector(vel_init) - 2 * np.dot(unit_vector(vel_init), unit_vector(normal)) * unit_vector(normal)
 
-    alpha = np.arctan2(vel_init)
-    theta = float(delta >= 0) * np.arccos(np.inner(unit_vector(vel_init[0:2]), unit_vector(normal)))
-    beta = math.pi - 2 * theta - alpha
+    return (vnorm+additional_speed) * vel_after_normalized
 
-    norm = np.linalg.norm(vel_init)
-    parts = norm * [math.cos(beta), math.sin(beta)]
 
-    return parts
+class BallInfo(object):
+    # The BallInfo class holds information about targets, such as name, position, etc
+    def __str__(self):
+        return str(self.__class__) + ": " + str(self.__dict__)
+
+    def __init__(self, idx_or_name, create_callback=False):
+        # type: (object, bool) -> None
+
+        if type(idx_or_name) == str:
+            self.name = idx_or_name  # type: str
+            # guess target idx from its name, works up to 99
+            self.idx = int(self.name[-2:-1]) if self.name[-2].isdigit() else int(self.name[-1])
+        elif type(idx_or_name) == int:
+            self.idx = idx_or_name  # type: int
+            self.name = 'target' + str(self.idx)
+        else:
+            raise TypeError("idx_or_name must be of type 'str' (construct by name) or 'int' (construct by id)")
+
+        self.radius = rospy.get_param('/targets/{0}/radius'.format(self.name), RADIUS_DEFAULT)
+        self.frame = WORLD_FRAME
+        self.local_pos = None  # type: PointStamped
+        self.gt_pose = None  # type: PointStamped
+        self.gt_pose_received = False
+
+        if create_callback:
+            self.gt_pose_sub = rospy.Subscriber('/targets/{0}/sim_pose'.format(self.name), PointStamped, self.pose_cb)
+
+    def pose_cb(self, msg):
+        # type: (PointStamped) -> None
+        self.gt_pose_received = True
+        self.gt_pose = msg
+
+    def new_pose_available(self):
+        # type: () -> bool
+        return self.gt_pose_received
+
+    def get_position(self):
+        # type: () -> PointStamped
+        self.gt_pose_received = False
+        return self.gt_pose
+
+    def get_position_np(self):
+        # type: () -> np.array
+        pos = self.get_position()
+        return np.array([
+            pos.point.x,
+            pos.point.y,
+            pos.point.z
+        ])
+
+    def get_local_pos(self):
+        # type: () -> PointStamped
+        return self.local_pos
+
+    def update_local_pos(self, frame, tf_buffer):
+        # type: (str, tf2_ros.Buffer) -> (bool, PointStamped)
+
+        if self.gt_pose is None:
+            return False, None
+
+        # Obtain this robot's pose in the arg frame
+        try:
+            # find latest time for transformation
+            tmp_ps = deepcopy(self.gt_pose)
+            tmp_ps.header.stamp = tf_buffer.get_latest_common_time(frame, self.frame)
+            self.local_pos = tf_buffer.transform(tmp_ps, frame)
+        except tf.Exception, err:
+            # return the old local pos anyway, but notify with success False
+            rospy.logwarn("Local pos not updated! TF Exception when transforming to local pos - %s", err)
+            return False, self.local_pos
+
+        return True, self.local_pos
 
 
 class Ball(object):
@@ -61,14 +148,16 @@ class Ball(object):
     #   - Impulse when ball hits the ground
     #   - Impulse by lifting the ball
 
-    def __init__(self, init_pos=None, freq_model=100, freq_pub=10, radius=0.3):
+    def __init__(self, init_pos=None, freq_model=100, freq_pub=10, name='TARGET_DEFAULT'):
+        # type: (list, int, int, float, str) -> None
 
         # initiate seed
-        random.seed = time()
+        random.seed = None
 
+        num_robots = 0
         try:
             self.walls = rospy.get_param('/world/walls')  # type: dict
-            num_robots = rospy.get_param('/num_robots')   # type: int
+            num_robots = rospy.get_param('/num_robots')  # type: int
         except rospy.ROSException, err:
             rospy.logerr('Error in parameter server - %s', err)
             exit(1)
@@ -79,19 +168,16 @@ class Ball(object):
         # initial pose
         if init_pos is None:
             init_pos = [0, 0, 1]
-        self.pos = np.array(init_pos, dtype=float)
-        assert len(self.pos) == 3
 
-        # radius
-        self.radius = radius
-        assert isinstance(radius, float)
+        self.pos = init_pos
+        self.info = BallInfo(name, create_callback=False)
 
         # velocities and flags
         self.vel = np.array([0, 0, 0], dtype=float)
         self.flag_hit_ground = True
         self.flag_stop = False
         self.flag_hover = False
-        self.virtual_ground = self.radius / 2.0
+        self.virtual_ground = self.info.radius / 2.0
 
         # timer for hovering
         self.timer_hover = None
@@ -118,26 +204,15 @@ class Ball(object):
         self.msg_GT_rviz = PointStamped()
         self.msg_GT_rviz.header.frame_id = WORLD_FRAME
 
-        # TF transformer
-        self.listener = tf.TransformListener()
-
         # robots list
-        self.robots = [self.create_robot(idx) for idx in range(num_robots)]
+        self.robots = [robot_imp.RobotInfo(idx + 1,
+                                           create_callback=EXPERIMENTAL_ENABLE_COLLISIONS,
+                                           create_service_proxy=False)
+                       for idx in range(num_robots)]
+        # list that will contain the time at which we can perform another side collision with a certain robot
+        self.robot_side_collision_times = [None] * num_robots
 
-    def create_robot(self, idx):
-        name = 'robot' + str(idx)
-        return {
-            'name'  : name,
-            # parameter needs to exist unless caller handles exception
-            'radius': rospy.get_param('/robots/' + name + '/radius'),
-            'frame' : name + '_base_link',
-            # extra idx parameter so that we can know which robot it is in the callbacks
-            'sub'   :
-                rospy.Subscriber(name + '/sim_pose', PoseStamped, self.robots_callback, idx)
-                if EXPERIMENTAL_ENABLE_COLLISIONS else None
-        }
-
-    def pub_callback(self, event):
+    def pub_callback(self, _):
         # publish as rviz msg
         self.msg_GT_rviz.header.stamp = rospy.Time.now()
         self.msg_GT_rviz.point.x = self.pos[0]
@@ -161,10 +236,7 @@ class Ball(object):
             self.timer_pub = rospy.Timer(rospy.Duration.from_sec(self.period_pub), self.pub_callback)
 
             if wait_for_robots:
-                for robot in self.robots:
-                    # wait for odometry service to be available before continue
-                    rospy.wait_for_service('{0}/sim_odometry/change_state'.format(robot['name']), timeout=3)
-
+                [rospy.wait_for_service(robot.odometry_service_name, timeout=3) for robot in self.robots]
         else:
             self.timer_pub.shutdown()
 
@@ -176,12 +248,12 @@ class Ball(object):
     def above_ground(self):
         return self.vel[2] > 0.0 and self.pos[2] > self.virtual_ground
 
-    def hover_callback(self, event):
-        self.virtual_ground = self.radius / 2.0
+    def hover_callback(self, _):
+        self.virtual_ground = self.info.radius / 2.0
         self.flag_hover = False
         self.flag_stop = False
 
-    def model_once(self):
+    def loop_once(self):
         dt = self.t
 
         # Random acceleration added to velocity of x,y
@@ -223,7 +295,7 @@ class Ball(object):
         # Will the ball hit the ground?
         if not self.flag_hit_ground and self.ground_hit:
             # Ball will hit the ground, invert velocity and damp it
-            self.vel[2] *= -0.7
+            self.vel[2] *= -DAMP_FACTOR
             self.flag_hit_ground = True
             rospy.logdebug('Hit ground')
 
@@ -240,6 +312,10 @@ class Ball(object):
         if self.flag_hit_ground and self.above_ground:
             self.flag_hit_ground = False
 
+        # Check for collision
+        if EXPERIMENTAL_ENABLE_COLLISIONS:
+            self.check_robots_collisions()
+
     def loop(self):
         # while ros is running
         while not rospy.is_shutdown():
@@ -247,23 +323,34 @@ class Ball(object):
             while not self.is_running:
                 rospy.sleep(self.rate_model)
 
-            self.model_once()
+            self.loop_once()
+
             self.rate_model.sleep()
 
-    def robots_callback(self, msg, list_id):
-        # Until more debug, disable this
-        if not EXPERIMENTAL_ENABLE_COLLISIONS:
-            return
+    def check_robots_collisions(self):
 
-        try:
-            translation, rotation = self.listener.lookupTransform(WORLD_FRAME, msg.header.frame_id, rospy.Time())
-            robot_pos = np.array(translation)
+        current_pos = self.pos
 
-            if check_collision(self.pos, self.radius,
-                               robot_pos, self.robots[list_id]['radius']):
-                rospy.logdebug('Ball hit')
-                self.vel[0:2] = velocity_after_hit(self.vel, self.pos, robot_pos)
+        for robot in self.robots:
+            if not robot.new_pose_available():
+                continue
 
-        except tf.Exception, err:
-            rospy.logwarn('TF Error - %s', err)
-            return
+            # Expects a [x,y,theta] np array
+            robot_pos = robot.get_pose_np()[0:2]
+
+            collision = check_collision(current_pos, self.info.radius, robot_pos, robot.radius, robot.height)
+
+            if collision == Collision.side:
+                rospy.logdebug('Ball hit the side of the robot')
+
+                update_time = self.robot_side_collision_times[robot.idx-1]
+                if update_time is None or rospy.Time.now() > update_time:
+                    self.vel[0:2] = velocity_after_side_hit(self.vel[0:2], current_pos[0:2], robot_pos,
+                                                            additional_speed=2.0)
+
+                    # wait at least 1 second until performing another collision, prevents crazy balls
+                    self.robot_side_collision_times[robot.idx-1] = rospy.Time.now() + rospy.Duration(1)
+
+            elif collision == Collision.top:
+                rospy.logdebug('Ball hit the top of the robot')
+                self.vel[2] *= -DAMP_FACTOR
