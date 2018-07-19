@@ -13,6 +13,7 @@ from geometry_msgs.msg import PoseWithCovariance, PoseStamped, Point, Quaternion
 from tf2_geometry_msgs import PointStamped
 from nav_msgs.msg import Odometry as odometryMsg
 
+from clt_msgs.msg import TargetMeasurementArray, TargetMeasurement
 from clt_random_datasets.msg import CustomOdometry as customOdometryMsg
 from clt_random_datasets.srv import SendString
 
@@ -217,7 +218,6 @@ class Robot(object):
             self.landmark_collision = rospy.get_param('~landmark_collision', True)
             self.threshold_obs_landmark = rospy.get_param('~landmark_obs_threshold', 3.0)
             self.threshold_obs_target = rospy.get_param('~target_obs_threshold', 3.0)
-            self.occlusions = rospy.get_param('~occlusions', True)
         except rospy.ROSException, err:
             rospy.logerr('Error in parameter server - %s', err)
             raise
@@ -276,10 +276,9 @@ class Robot(object):
         self.pub_odometry = rospy.Publisher('~odometry', odometryMsg, queue_size=50)
         self.pub_gt_rviz = rospy.Publisher('~sim_pose', PoseStamped, queue_size=10)
         self.pub_landmark_observations = rospy.Publisher('/visualization/landmark_obs', MarkerArray, queue_size=5)
-        self.pub_target_observations = rospy.Publisher('/visualization/target_obs', MarkerArray, queue_size=5)
+        self.pub_target_observations_visualization = rospy.Publisher('/visualization/target_obs', MarkerArray, queue_size=5)
+        self.pub_target_observations_custom = rospy.Publisher('~target_measurements', TargetMeasurementArray, queue_size=5)
         self.pub_cylinder = rospy.Publisher('/visualization/robot_positions', Marker, queue_size=5)
-        # TODO merge the noise with the target measurement msg
-        self.pub_target_obs_noise = rospy.Publisher(self.info.name + '/targetObsNoise', Float32, queue_size=5)
         # TODO re-enable robot observations?
         # self.pub_robot_observations = rospy.Publisher('/visualization/robot_obs', MarkerArray, queue_size=5)
 
@@ -502,21 +501,20 @@ class Robot(object):
                 marker.color = ColorRGBA(0.8, 0.8, 0.1, 1.0)
 
             # check occlusions, if occluded paint as red
-            if self.occlusions is True:
-                for robot in self.other_robots:
+            for robot in self.other_robots:
 
-                    pose_local = robot.get_local_pose()
-                    if pose_local is None:
-                        continue
+                pose_local = robot.get_local_pose()
+                if pose_local is None:
+                    continue
 
-                    if check_occlusions([0, 0],
-                                        [lm_point_local.point.x, lm_point_local.point.y],
-                                        self.info.radius,  # assume same radius for all robots
-                                        [pose_local.pose.position.x, pose_local.pose.position.y]):
-                        # Red color
-                        marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
-                        marker.text = 'NotSeen'
-                        break
+                if check_occlusions([0, 0],
+                                    [lm_point_local.point.x, lm_point_local.point.y],
+                                    self.info.radius,  # assume same radius for all robots
+                                    [pose_local.pose.position.x, pose_local.pose.position.y]):
+                    # Red color
+                    marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
+                    marker.text = 'NotSeen'
+                    break
 
             markers.markers.append(marker)
             marker_id += 1
@@ -527,14 +525,14 @@ class Robot(object):
             rospy.logdebug('ROSException - %s', err)
 
     def generate_target_observations(self, _):
-
-        marker_id = 0
-        markers = MarkerArray()
+        msg = TargetMeasurementArray()
+        meas = TargetMeasurement()
+        msg.header.stamp = rospy.Time.now()
+        msg.header.frame_id = self.info.frame
 
         for target in self.targets:
-
-            # compute and get the position of the target in the robot frame
-            success, pos_local = target.update_local_pos(self.info.frame, self.tf_buffer)
+            # Compute and get the position of the target in the robot frame
+            success, pos_local = target.update_local_pos(self.info.frame, self.tf_buffer)  # type: (bool, PointStamped)
             if not success:
                 continue
 
@@ -545,60 +543,65 @@ class Robot(object):
                 random.gauss(0, max(0.05, 0.02 * math.sqrt(abs(pos_local.point.z))))
             ])
 
-            self.pub_target_obs_noise.publish(Float32(np.linalg.norm(noises)))
+            # Add the noise to the local observation
+            pos_local_noisy_np = np.array([pos_local.point.x, pos_local.point.y, pos_local.point.z]) + noises
 
-            pos_local.point.x += noises[0]
-            pos_local.point.y += noises[1]
-            pos_local.point.z += noises[2]
+            # Check out of range
+            dist = np.linalg.norm(pos_local_noisy_np)
+            oor = dist > self.threshold_obs_target
 
-            # create a marker arrow to connect robot and target
-            marker = build_marker_arrow(pos_local.point)
-            marker.header.frame_id = self.frame
-            marker.header.stamp = rospy.Time.now()
+            # Check for occlusions
+            occlusion = dist < self.info.radius
+            if not occlusion:
+                # Check against all other robots
+                for robot in self.other_robots:
+                    pose_local = robot.get_local_pose()
+                    if pose_local is None:
+                        continue
+
+                    occlusion = check_occlusions([0, 0],
+                                                 pos_local_noisy_np[0:2],
+                                                 robot.radius,
+                                                 [pose_local.pose.position.x, pose_local.pose.position.y])
+                    if occlusion:
+                        break
+
+            # Fill the single measurement
+            meas.label = 'ball'
+            meas.id = target.idx
+            meas.robot = self.info.idx
+            meas.center.x, meas.center.y, meas.center.z = pos_local_noisy_np
+            meas.noise = np.linalg.norm(noises)
+            if occlusion:
+                meas.status = TargetMeasurement.OCCLUDED
+            elif oor:
+                meas.status = TargetMeasurement.OUTOFRANGE
+            else:
+                meas.status = TargetMeasurement.SEEN
+
+            # Add to msg, needs deepcopy
+            msg.measurements.append(deepcopy(meas))
+
+        # Publish as a marker array to be viewed in rviz
+        markers = MarkerArray()
+        for measurement in msg.measurements:  # type: TargetMeasurement
+            marker = build_marker_arrow(measurement.center)
+            marker.header.frame_id = msg.header.frame_id
+            marker.header.stamp = msg.header.stamp
             marker.ns = self.info.name
-            marker.id = marker_id
-
-            # paint as green and mark as seen by default
-            marker.color = ColorRGBA(0.1, 1.0, 0.1, 1.0)
-            marker.text = 'Seen'
-
-            # if distance < threshold, not seen and paint as yellow
-            if norm2(pos_local.point.x, pos_local.point.y) > self.threshold_obs_target:
-                marker.text = 'NotSeen'
-                # Yellow color
+            marker.id = measurement.id
+            marker.text = measurement.label
+            if measurement.status == TargetMeasurement.OCCLUDED:
+                marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
+            elif measurement.status == TargetMeasurement.OUTOFRANGE:
                 marker.color = ColorRGBA(0.8, 0.8, 0.1, 1.0)
-
-            # check occlusions, if occluded paint as red
-            if self.occlusions is True:
-                # check if target is inside self
-                if math.sqrt(math.pow(pos_local.point.x, 2)
-                             + math.pow(pos_local.point.y, 2)) < self.info.radius \
-                        and pos_local.point.z < self.info.height:
-                    # Red color
-                    marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
-                    marker.text = 'NotSeen'
-
-                else:
-                    for robot in self.other_robots:
-
-                        pose_local = robot.get_local_pose()
-                        if pose_local is None:
-                            continue
-
-                        if check_occlusions([0, 0],
-                                            [pos_local.point.x, pos_local.point.y],
-                                            self.info.radius,  # assume same radius for all robots
-                                            [pose_local.pose.position.x, pose_local.pose.position.y]):
-                            # Red color
-                            marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
-                            marker.text = 'NotSeen'
-                            break
-
+            else:
+                marker.color = ColorRGBA(0.1, 1.0, 0.1, 1.0)
             markers.markers.append(marker)
-            marker_id += 1
 
         try:
-            self.pub_target_observations.publish(markers)
+            self.pub_target_observations_custom.publish(msg)
+            self.pub_target_observations_visualization.publish(markers)
         except rospy.ROSException, err:
             rospy.logdebug('ROSException - %s', err)
 
@@ -630,24 +633,23 @@ class Robot(object):
             marker.text = 'Seen'
 
             # check occlusions, if occluded paint as red
-            if self.occlusions:
-                for other_robot in self.other_robots:
-                    if other_robot.idx == robot.idx:
-                        continue
+            for other_robot in self.other_robots:
+                if other_robot.idx == robot.idx:
+                    continue
 
-                    other_pose_local = other_robot.get_local_pose()
+                other_pose_local = other_robot.get_local_pose()
 
-                    if other_pose_local is None:
-                        continue
+                if other_pose_local is None:
+                    continue
 
-                    if check_occlusions([0, 0],
-                                        [pose_local.pose.position.x, pose_local.pose.position.y],
-                                        self.info.radius,  # assume same radius for all robots
-                                        [other_pose_local.pose.position.x, other_pose_local.pose.position.y]):
-                        # Red color
-                        marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
-                        marker.text = 'NotSeen'
-                        break
+                if check_occlusions([0, 0],
+                                    [pose_local.pose.position.x, pose_local.pose.position.y],
+                                    other_robot.radius,
+                                    [other_pose_local.pose.position.x, other_pose_local.pose.position.y]):
+                    # Red color
+                    marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
+                    marker.text = 'NotSeen'
+                    break
 
             markers.markers.append(marker)
             marker_id += 1
