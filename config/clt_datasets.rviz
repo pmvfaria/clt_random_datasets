@@ -4,13 +4,14 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        - /Global Options1
         - /Target11/Status1
         - /OMNI41/GTPose1
-        - /Landmark Observations1/Status1
+        - /Landmark Observations1
         - /Landmark Observations1/Namespaces1
         - /Target Observations1
         - /Target Observations1/Namespaces1
-      Splitter Ratio: 0.502777994
+      Splitter Ratio: 0.497222215
     Tree Height: 709
   - Class: rviz/Selection
     Name: Selection
@@ -98,7 +99,7 @@ Visualization Manager:
           Marker Topic: /landmarks
           Name: Landmarks
           Namespaces:
-            {}
+            landmarks_1: true
           Queue Size: 100
           Value: true
         - Alpha: 1
@@ -392,27 +393,30 @@ Visualization Manager:
       Queue Size: 100
       Value: true
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /visualization/landmark_obs
       Name: Landmark Observations
       Namespaces:
-        {}
+        robot1: true
+        robot2: false
+        robot3: false
+        robot4: false
       Queue Size: 100
-      Value: false
+      Value: true
     - Class: rviz/MarkerArray
       Enabled: true
       Marker Topic: /visualization/target_obs
       Name: Target Observations
       Namespaces:
         robot1: true
-        robot2: true
-        robot3: true
-        robot4: true
+        robot2: false
+        robot3: false
+        robot4: false
       Queue Size: 100
       Value: true
   Enabled: true
   Global Options:
-    Background Color: 0; 0; 0
+    Background Color: 0; 28; 66
     Default Light: true
     Fixed Frame: world
     Frame Rate: 60
@@ -435,16 +439,16 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 10.3319159
+      Distance: 15.5951366
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 3.92503881
-        Y: -0.413641155
-        Z: 2.02035761
+        X: 4.38081312
+        Y: 1.13756239
+        Z: 1.24428892
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.0500000007
       Invert Z Axis: false
@@ -453,7 +457,7 @@ Visualization Manager:
       Pitch: 1.56979632
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 3.09815264
+      Yaw: 4.71813345
     Saved: ~
 Window Geometry:
   Displays:

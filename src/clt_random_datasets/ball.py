@@ -88,23 +88,18 @@ class BallInfo(object):
         self.frame = WORLD_FRAME
         self.local_pos = None  # type: PointStamped
         self.gt_pose = None  # type: PointStamped
-        self.gt_pose_received = False
+        self.pose_ever_received = False
 
         if create_callback:
             self.gt_pose_sub = rospy.Subscriber('/targets/{0}/sim_pose'.format(self.name), PointStamped, self.pose_cb)
 
     def pose_cb(self, msg):
         # type: (PointStamped) -> None
-        self.gt_pose_received = True
+        self.pose_ever_received = True
         self.gt_pose = msg
-
-    def new_pose_available(self):
-        # type: () -> bool
-        return self.gt_pose_received
 
     def get_position(self):
         # type: () -> PointStamped
-        self.gt_pose_received = False
         return self.gt_pose
 
     def get_position_np(self):
@@ -183,7 +178,7 @@ class Ball(object):
         self.timer_hover = None
 
         # publishers
-        self.pub_gt_rviz = rospy.Publisher('~sim_pose', PointStamped, queue_size=int(freq_pub))
+        self.pub_gt = rospy.Publisher('~sim_pose', PointStamped, queue_size=int(freq_pub))
 
         # model rate
         self.rate_model = rospy.Rate(freq_model)
@@ -201,8 +196,8 @@ class Ball(object):
         self.is_running = False
 
         # GT pose
-        self.msg_GT_rviz = PointStamped()
-        self.msg_GT_rviz.header.frame_id = WORLD_FRAME
+        self.gt_pose_msg = PointStamped()
+        self.gt_pose_msg.header.frame_id = WORLD_FRAME
 
         # robots list
         self.robots = [robot_imp.RobotInfo(idx + 1,
@@ -213,14 +208,14 @@ class Ball(object):
         self.robot_side_collision_times = [None] * num_robots
 
     def pub_callback(self, _):
-        # publish as rviz msg
-        self.msg_GT_rviz.header.stamp = rospy.Time.now()
-        self.msg_GT_rviz.point.x = self.pos[0]
-        self.msg_GT_rviz.point.y = self.pos[1]
-        self.msg_GT_rviz.point.z = self.pos[2]
+        # publish msg
+        self.gt_pose_msg.header.stamp = rospy.Time.now()
+        self.gt_pose_msg.point.x = self.pos[0]
+        self.gt_pose_msg.point.y = self.pos[1]
+        self.gt_pose_msg.point.z = self.pos[2]
 
         try:
-            self.pub_gt_rviz.publish(self.msg_GT_rviz)
+            self.pub_gt.publish(self.gt_pose_msg)
         except rospy.ROSException, err:
             rospy.logdebug('ROSException - %s', err)
 
@@ -332,7 +327,7 @@ class Ball(object):
         current_pos = self.pos
 
         for robot in self.robots:
-            if not robot.new_pose_available():
+            if not robot.pose_ever_received:
                 continue
 
             # Expects a [x,y,theta] np array

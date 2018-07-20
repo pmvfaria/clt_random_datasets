@@ -7,15 +7,14 @@ from math import pi
 from angles import normalize_angle
 import tf
 import tf2_ros
-from std_msgs.msg import ColorRGBA, Float32
+from std_msgs.msg import ColorRGBA
 from visualization_msgs.msg import MarkerArray, Marker
 from geometry_msgs.msg import PoseWithCovariance, PoseStamped, Point, Quaternion
 from tf2_geometry_msgs import PointStamped
 from nav_msgs.msg import Odometry as odometryMsg
 
-from clt_msgs.msg import TargetMeasurementArray, TargetMeasurement
-from clt_random_datasets.msg import CustomOdometry as customOdometryMsg
-from clt_random_datasets.srv import SendString
+from clt_msgs.msg import MeasurementArray, Measurement, CustomOdometry as customOdometryMsg
+from clt_msgs.srv import SendString
 
 # relative
 import ball as ball_imp
@@ -113,6 +112,28 @@ def check_occlusions(sensor, target, radius, obj):
         return True
 
 
+def measurement_array_to_markers(msg, namespace):
+    # type: (MeasurementArray, str) -> MarkerArray
+
+    markers = MarkerArray()
+    for measurement in msg.measurements:  # type: Measurement
+        marker = build_marker_arrow(measurement.center)
+        marker.header.frame_id = msg.header.frame_id
+        marker.header.stamp = msg.header.stamp
+        marker.ns = namespace
+        marker.id = measurement.id
+        marker.text = measurement.label
+        if measurement.status == Measurement.OCCLUDED:
+            marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
+        elif measurement.status == Measurement.OUTOFRANGE:
+            marker.color = ColorRGBA(0.8, 0.8, 0.1, 1.0)
+        else:
+            marker.color = ColorRGBA(0.1, 1.0, 0.1, 1.0)
+        markers.markers.append(marker)
+
+    return markers
+
+
 class RobotInfo(object):
     # The RobotInfo class holds information about other robots, such as their name, current pose, radius
     def __str__(self):
@@ -133,11 +154,11 @@ class RobotInfo(object):
 
         self.radius = rospy.get_param('/robots/{0}/radius'.format(self.name), RADIUS_DEFAULT)
         self.height = rospy.get_param('/robots/{0}/height'.format(self.name), HEIGHT_DEFAULT)
-        self.odometry_service_name = '/robots/{0}/sim_odometry/change_state'.format(self.name)
+        self.odometry_service_name = '/robots/{0}/custom_odometry/change_state'.format(self.name)
         self.frame = self.name
         self.local_pose = None  # type: PoseStamped
         self.gt_pose = None  # type: PoseStamped
-        self.gt_pose_received = False
+        self.pose_ever_received = False
 
         if create_service_proxy:
             self.odometry_service_client = rospy.ServiceProxy(self.odometry_service_name, SendString)
@@ -147,16 +168,11 @@ class RobotInfo(object):
 
     def pose_cb(self, msg):
         # type: (PoseStamped) -> None
-        self.gt_pose_received = True
+        self.pose_ever_received = True
         self.gt_pose = msg
-
-    def new_pose_available(self):
-        # type: () -> bool
-        return self.gt_pose_received
 
     def get_pose(self):
         # type: () -> PoseStamped
-        self.gt_pose_received = False
         return self.gt_pose
 
     def get_pose_np(self):
@@ -210,20 +226,24 @@ class Robot(object):
 
         # parameters: landmarks, walls, playing robots, alphas
         try:
-            self.lm_list = rospy.get_param('/world/landmarks')
-            walls = rospy.get_param('/world/walls')
-            num_robots = rospy.get_param('/num_robots')
-            num_targets = rospy.get_param('/num_targets')
-            self.alphas = rospy.get_param('~alphas')
-            self.landmark_collision = rospy.get_param('~landmark_collision', True)
-            self.threshold_obs_landmark = rospy.get_param('~landmark_obs_threshold', 3.0)
-            self.threshold_obs_target = rospy.get_param('~target_obs_threshold', 3.0)
+            self.landmarks_list = rospy.get_param('/world/landmarks')  # type: list
+            walls = rospy.get_param('/world/walls')  # type: dict
+            num_robots = rospy.get_param('/num_robots')  # type: int
+            num_targets = rospy.get_param('/num_targets')  # type: int
+            self.alphas = rospy.get_param('~alphas')  # type: list
+            self.landmark_collision = rospy.get_param('~landmark_collision', True)  # type: bool
+            self.threshold_obs_landmark = rospy.get_param('~landmark_obs_threshold', 3.0)  # type: float
+            self.threshold_obs_target = rospy.get_param('~target_obs_threshold', 3.0)  # type: float
         except rospy.ROSException, err:
             rospy.logerr('Error in parameter server - %s', err)
             raise
         except KeyError, err:
             rospy.logerr('Value of %s not set', err)
             raise
+
+        # save local observations of landmarks
+        # TODO accomplish similarly to RobotInfo and BallInfo?
+        self.landmark_obs_local = []
 
         # build walls list from the dictionary
         # tuple -> (location, variable to check, reference angle)
@@ -243,19 +263,16 @@ class Robot(object):
 
         self.last_odometry = None  # type: customOdometryMsg
 
-        self.frame = self.info.name
         self.generate_observations_counter = 0
-        self.landmark_obs_local = None
 
         self.msg_odometry = odometryMsg()
-        self.msg_GT = PoseWithCovariance()
-        self.msg_GT_rviz = PoseStamped()
-        self.msg_GT_rviz.header.frame_id = WORLD_FRAME
+        self.gt_pose_msg = PoseStamped()
+        self.gt_pose_msg.header.frame_id = WORLD_FRAME
 
         # pose marker
         self.cylinder = Marker(action=Marker.ADD, type=Marker.CYLINDER, color=ColorRGBA(0.5, 0.5, 0.5, 1.0),
                                ns='robots_gt', id=self.info.idx)
-        self.cylinder.header.frame_id = self.frame
+        self.cylinder.header.frame_id = self.info.frame
         self.cylinder.action = Marker.ADD
         self.cylinder.type = Marker.CYLINDER
         self.cylinder.scale.x = self.cylinder.scale.y = self.info.radius * 2.0 * CYLINDER_SCALE
@@ -269,16 +286,17 @@ class Robot(object):
         self.info.odometry_service_client('WalkForward')
 
         # subscribers
-        self.sub_odometry = rospy.Subscriber('~sim_odometry', customOdometryMsg,
+        self.sub_odometry = rospy.Subscriber('~custom_odometry', customOdometryMsg,
                                              callback=self.odometry_callback, queue_size=100)
 
         # publishers
         self.pub_odometry = rospy.Publisher('~odometry', odometryMsg, queue_size=50)
-        self.pub_gt_rviz = rospy.Publisher('~sim_pose', PoseStamped, queue_size=10)
-        self.pub_landmark_observations = rospy.Publisher('/visualization/landmark_obs', MarkerArray, queue_size=5)
-        self.pub_target_observations_visualization = rospy.Publisher('/visualization/target_obs', MarkerArray, queue_size=5)
-        self.pub_target_observations_custom = rospy.Publisher('~target_measurements', TargetMeasurementArray, queue_size=5)
+        self.pub_gt_pose = rospy.Publisher('~sim_pose', PoseStamped, queue_size=10)
         self.pub_cylinder = rospy.Publisher('/visualization/robot_positions', Marker, queue_size=5)
+        self.pub_landmark_observations_custom = rospy.Publisher('~landmark_measurements', MeasurementArray, queue_size=5)
+        self.pub_landmark_observations_visualization = rospy.Publisher('/visualization/landmark_obs', MarkerArray, queue_size=5)
+        self.pub_target_observations_custom = rospy.Publisher('~target_measurements', MeasurementArray, queue_size=5)
+        self.pub_target_observations_visualization = rospy.Publisher('/visualization/target_obs', MarkerArray, queue_size=5)
         # TODO re-enable robot observations?
         # self.pub_robot_observations = rospy.Publisher('/visualization/robot_obs', MarkerArray, queue_size=5)
 
@@ -317,7 +335,7 @@ class Robot(object):
         self.handle_odometry(self.last_odometry)
 
         # publish current pose
-        self.publish_rviz_gt(self.last_odometry.header.stamp)
+        self.publish_gt_pose(self.last_odometry.header.stamp)
         self.last_odometry = None
 
         # check if time to generate observations
@@ -424,7 +442,7 @@ class Robot(object):
     def pose_to_str(self):
         return 'Current pose:\nx={0}\ny={1}\ntheta={2}'.format(self.pose[0], self.pose[1], self.pose[2])
 
-    def publish_rviz_gt(self, stamp=None):
+    def publish_gt_pose(self, stamp=None):
         if stamp is None:
             stamp = rospy.Time.now()
 
@@ -433,16 +451,16 @@ class Robot(object):
         self.broadcaster.sendTransform([self.pose[0], self.pose[1], 0],
                                        quaternion,
                                        stamp,
-                                       self.frame,
+                                       self.info.frame,
                                        WORLD_FRAME)
 
-        self.msg_GT_rviz.header.stamp = stamp
-        self.msg_GT_rviz.pose.position = Point(x=self.pose[0], y=self.pose[1], z=0)
-        self.msg_GT_rviz.pose.orientation = Quaternion(x=quaternion[0], y=quaternion[1], z=quaternion[2],
+        self.gt_pose_msg.header.stamp = stamp
+        self.gt_pose_msg.pose.position = Point(x=self.pose[0], y=self.pose[1], z=0)
+        self.gt_pose_msg.pose.orientation = Quaternion(x=quaternion[0], y=quaternion[1], z=quaternion[2],
                                                        w=quaternion[3])
 
         try:
-            self.pub_gt_rviz.publish(self.msg_GT_rviz)
+            self.pub_gt_pose.publish(self.gt_pose_msg)
         except rospy.ROSException, err:
             rospy.logdebug('ROSException - %s', err)
 
@@ -455,82 +473,106 @@ class Robot(object):
             rospy.logdebug('ROSException - %s', err)
 
     def generate_landmark_observations(self, _):
-        marker_id = 0
-        stamp = rospy.Time()  # last available tf
-        markers = MarkerArray()
-        lm_point = PointStamped()
-        lm_point.header.frame_id = WORLD_FRAME
-        lm_point.header.stamp = stamp
+        msg = MeasurementArray()
+        msg.header.frame_id = self.info.frame
 
-        self.landmark_obs_local = list()
+        # Use latest time available, should correspond to the latest tf sent by this robot
+        msg.header.stamp = rospy.Time(0)
+        meas = Measurement()
 
-        # for all landmarks
-        for lm in self.lm_list:
-            lm_point.point.x = lm[0]
-            lm_point.point.y = lm[1]
-            lm_point.point.z = self.info.height
+        pos_global = PointStamped()
+        pos_global.header.frame_id = WORLD_FRAME
+        pos_global.header.stamp = msg.header.stamp
+
+        id_counter = 1
+        del self.landmark_obs_local[:]
+
+        for landmark in self.landmarks_list:
+            # Position in world frame, static
+            pos_global.point.x = landmark[0]
+            pos_global.point.y = landmark[1]
+            pos_global.point.z = 0  # TODO self.info.height ?
 
             # Calc. the observation in the local frame
             try:
-                lm_point_local = self.tf_buffer.transform(lm_point, self.frame)
+                pos_local = self.tf_buffer.transform(pos_global, self.info.frame)
             except tf.Exception, err:
                 rospy.logwarn('TF Error - %s', err)
                 return
 
+            # Save to list of local observations
+            pos_local_np = np.array([pos_local.point.x, pos_local.point.y, pos_local.point.z])
+            self.landmark_obs_local.append(pos_local_np)
+
             # Add some noise
-            lm_point_local.point.x += random.gauss(0, max(0.08, 0.02 * math.sqrt(abs(lm_point_local.point.x))))
-            lm_point_local.point.y += random.gauss(0, max(0.08, 0.02 * math.sqrt(abs(lm_point_local.point.y))))
+            noises = np.array([
+                random.gauss(0, max(0.15, 0.03 * math.sqrt(abs(pos_local.point.x)))),
+                random.gauss(0, max(0.15, 0.03 * math.sqrt(abs(pos_local.point.y)))),
+                random.gauss(0, max(0.15, 0.03 * math.sqrt(abs(pos_local.point.z)))),
+            ])
 
-            self.landmark_obs_local.append([lm_point_local.point.x, lm_point_local.point.y])
+            # Add the noise to the local observation
+            pos_local_noisy_np = pos_local_np + noises
 
-            # create a marker arrow to connect robot and landmark
-            marker = build_marker_arrow(lm_point_local.point)
-            marker.header.frame_id = self.frame
-            marker.header.stamp = rospy.Time.now()
-            marker.ns = self.info.name
-            marker.id = marker_id
+            # Check out of range
+            dist = np.linalg.norm(pos_local_noisy_np)
+            oor = dist > self.threshold_obs_landmark
 
-            # paint as green and mark as seen by default
-            marker.color = ColorRGBA(0.1, 1.0, 0.1, 1.0)
-            marker.text = 'Seen'
+            # Check for occlusions
+            occlusion = dist < self.info.radius
+            if not occlusion:
+                # Check against all other robots
+                for robot in self.other_robots:
+                    pose_local = robot.get_local_pose()
+                    if pose_local is None:
+                        continue
 
-            # if distance > threshold, not seen and paint as yellow
-            if norm2(lm_point_local.point.x, lm_point_local.point.y) > self.threshold_obs_landmark:
-                marker.text = 'NotSeen'
-                # Yellow color
-                marker.color = ColorRGBA(0.8, 0.8, 0.1, 1.0)
+                    occlusion = check_occlusions([0, 0],
+                                                 pos_local_noisy_np[0:2],
+                                                 robot.radius,
+                                                 [pose_local.pose.position.x, pose_local.pose.position.y])
+                    if occlusion:
+                        break
 
-            # check occlusions, if occluded paint as red
-            for robot in self.other_robots:
+            # Fill the single measurement
+            meas.label = 'landmark'
+            meas.id = id_counter
+            meas.robot = self.info.idx
+            meas.center.x, meas.center.y, meas.center.z = pos_local_noisy_np
+            meas.noise = np.linalg.norm(noises)
+            if occlusion:
+                meas.status = Measurement.OCCLUDED
+            elif oor:
+                meas.status = Measurement.OUTOFRANGE
+            else:
+                meas.status = Measurement.SEEN
 
-                pose_local = robot.get_local_pose()
-                if pose_local is None:
-                    continue
+            # Add to msg, needs deepcopy
+            msg.measurements.append(deepcopy(meas))
 
-                if check_occlusions([0, 0],
-                                    [lm_point_local.point.x, lm_point_local.point.y],
-                                    self.info.radius,  # assume same radius for all robots
-                                    [pose_local.pose.position.x, pose_local.pose.position.y]):
-                    # Red color
-                    marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
-                    marker.text = 'NotSeen'
-                    break
-
-            markers.markers.append(marker)
-            marker_id += 1
+            # Increment counter
+            id_counter += 1
 
         try:
-            self.pub_landmark_observations.publish(markers)
+            self.pub_landmark_observations_custom.publish(msg)
+            # Publish as a marker array to be viewed in rviz
+            self.pub_landmark_observations_visualization.publish(
+                measurement_array_to_markers(msg, self.info.name)
+            )
         except rospy.ROSException, err:
             rospy.logdebug('ROSException - %s', err)
 
     def generate_target_observations(self, _):
-        msg = TargetMeasurementArray()
-        meas = TargetMeasurement()
+
+        msg = MeasurementArray()
+        meas = Measurement()
         msg.header.stamp = rospy.Time.now()
         msg.header.frame_id = self.info.frame
 
         for target in self.targets:
+            if not target.pose_ever_received:
+                continue
+
             # Compute and get the position of the target in the robot frame
             success, pos_local = target.update_local_pos(self.info.frame, self.tf_buffer)  # type: (bool, PointStamped)
             if not success:
@@ -573,35 +615,21 @@ class Robot(object):
             meas.center.x, meas.center.y, meas.center.z = pos_local_noisy_np
             meas.noise = np.linalg.norm(noises)
             if occlusion:
-                meas.status = TargetMeasurement.OCCLUDED
+                meas.status = Measurement.OCCLUDED
             elif oor:
-                meas.status = TargetMeasurement.OUTOFRANGE
+                meas.status = Measurement.OUTOFRANGE
             else:
-                meas.status = TargetMeasurement.SEEN
+                meas.status = Measurement.SEEN
 
             # Add to msg, needs deepcopy
             msg.measurements.append(deepcopy(meas))
 
-        # Publish as a marker array to be viewed in rviz
-        markers = MarkerArray()
-        for measurement in msg.measurements:  # type: TargetMeasurement
-            marker = build_marker_arrow(measurement.center)
-            marker.header.frame_id = msg.header.frame_id
-            marker.header.stamp = msg.header.stamp
-            marker.ns = self.info.name
-            marker.id = measurement.id
-            marker.text = measurement.label
-            if measurement.status == TargetMeasurement.OCCLUDED:
-                marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
-            elif measurement.status == TargetMeasurement.OUTOFRANGE:
-                marker.color = ColorRGBA(0.8, 0.8, 0.1, 1.0)
-            else:
-                marker.color = ColorRGBA(0.1, 1.0, 0.1, 1.0)
-            markers.markers.append(marker)
-
         try:
             self.pub_target_observations_custom.publish(msg)
-            self.pub_target_observations_visualization.publish(markers)
+            # Publish as a marker array to be viewed in rviz
+            self.pub_target_observations_visualization.publish(
+                measurement_array_to_markers(msg, self.info.name)
+            )
         except rospy.ROSException, err:
             rospy.logdebug('ROSException - %s', err)
 
@@ -623,7 +651,7 @@ class Robot(object):
 
             # create a marker arrow to connect both robots
             marker = build_marker_arrow(pose_local.pose.position)
-            marker.header.frame_id = self.frame
+            marker.header.frame_id = self.info.frame
             marker.header.stamp = stamp
             marker.ns = self.info.name
             marker.id = robot.idx
@@ -689,12 +717,12 @@ class Robot(object):
                 return True
 
         if self.landmark_collision is True and self.landmark_obs_local is not None:
-            for x, y in self.landmark_obs_local:
-                dist = norm2(x, y)
-                ang = normalize_angle(math.atan2(y, x))
+            for obs in self.landmark_obs_local:
+                dist = np.linalg.norm(obs)
+                ang = normalize_angle(math.atan2(obs[1], obs[0]))
 
                 # if close to landmark and going to walk into it, return collision
-                if x > 0 and dist < (self.info.radius + 0.3) and abs(ang) < pi / 3:
+                if obs[0] > 0 and dist < (self.info.radius + 0.3) and abs(ang) < pi / 3:
                     return True
 
         # No collision

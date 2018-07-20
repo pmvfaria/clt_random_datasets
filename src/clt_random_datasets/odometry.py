@@ -1,8 +1,7 @@
 import rospy
 import random
-import std_msgs.msg
-from clt_random_datasets.msg import CustomOdometry as customOdometryMsg
-from clt_random_datasets.srv import SendString, SendStringResponse
+from clt_msgs.msg import CustomOdometry as customOdometryMsg
+from clt_msgs.srv import SendString, SendStringResponse
 
 LEFT_T_WF = 0.020
 RIGHT_T_WF = 0.030
@@ -113,7 +112,7 @@ class Odometry(object):
         self.values = dict()
 
         # specific robot's odometry topic name
-        topic = '~sim_odometry'
+        topic = '~custom_odometry'
 
         # publisher of odometry values
         self.publisher = rospy.Publisher(topic, customOdometryMsg, queue_size=100)
@@ -126,7 +125,6 @@ class Odometry(object):
 
         # initiate the msg to be quicker in the loop
         self.msg = customOdometryMsg()
-        self.msg.header = std_msgs.msg.Header()
 
         # flag for running if loop is used
         self.is_running = False
