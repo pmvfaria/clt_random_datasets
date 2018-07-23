@@ -1,27 +1,27 @@
-# randgen\_omni\_dataset
+# clt\_random\_datasets
 
-This ROS package generates random datasets in a simulation environment, for multiple robots and targets with random motion. Currently, it is designed to work with the OMNI dataset, but can be adapted to different configurations.
+This ROS package generates random datasets in a simulation environment, for multiple robots and targets with random motion.
 
 ## Brief Description
 
-You need to test your localization/tracking algorithm for more robots than you have access to, so you desire a simulation environment. However, many of the existing simulators are time-consuming to setup. This package provides a simple to use simulation environment, which displays internal states in rviz-friendly formats.
+You need to test your localization/tracking algorithm for more robots than you have access to, so you desire a simulation environment. However, many of the existing simulators are time-consuming to setup. This package provides a simple to use simulation environment, which displays internal states in rviz-friendly formats for visualization, as well as custom msg formats with more information.
 
-Due to using multiple ROS nodes, it is also multi-threading friendly.
+Due to using multiple ROS nodes, it scales very well across CPU cores. The computational complexity is O(m n^2), where **m** is the number of targets, and **n** is the number of robots. This is because each robot checks for collisions with all other robots.
 
 ## Modules
 
 The following modules are available in this dataset generator:
 
-* **Robot module** - provides the interface between odometry and landmark/target observations, pose publishing, etc. It is the main module
-* **Odometry module** - provides new odometry readings at a constant frequency, to which the robot module subscribes in order to advance its pose. A probabilistic noise model is used, similar to the model described in Probabilistic Robotics. The odometry changes states (from WalkForward to Rotate) through a ROS service
-* **Ball(Target) module** - Simulates a ball with gravity, hovering and pulling, just like if a person would be holding the ball by a string and moving it around
-* **Walls module** - Sets up a field with 4 walls
+* **Robot module** - provides odometry, landmark/target observations, checks collisions, etc. It is the main module.
+* **Ball(Target) module** - Simulates a ball with gravity, hovering, pulling, and collisions with robots, as if a person would be holding the ball by a string and moving it around
+* **Walls module** - Sets up a field with 4 walls surrounding it
 * **Landmarks module** - Loads a configuration file and sets up static landmarks in the stage. Publishes a ROS topic with the landmarks positions
-* **OMNI\_custom module** - Transforms the ROS/rviz standard formats in the other modules to the OMNI dataset message format.
 
 ## Requisites
 
-[ROS](https://www.ros.org). Tested with ROS Indigo and Kinetic. Visualization needs [rviz](https://wiki.ros.org/rviz)
+* [ROS](https://www.ros.org). Tested with ROS Indigo and Kinetic.
+* [rviz](https://wiki.ros.org/rviz) for visualization.
+* [clt_msgs] (TODO fix url)
 
 ## How to Use
 

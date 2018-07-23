@@ -69,10 +69,6 @@ Visualization Manager:
           Value: true
         robot2:
           Value: true
-        robot3:
-          Value: true
-        robot4:
-          Value: true
         world:
           Value: true
       Marker Scale: 2
@@ -85,10 +81,6 @@ Visualization Manager:
           robot1:
             {}
           robot2:
-            {}
-          robot3:
-            {}
-          robot4:
             {}
       Update Interval: 0
       Value: true
@@ -399,8 +391,6 @@ Visualization Manager:
       Namespaces:
         robot1: true
         robot2: false
-        robot3: false
-        robot4: false
       Queue Size: 100
       Value: true
     - Class: rviz/MarkerArray
@@ -410,13 +400,11 @@ Visualization Manager:
       Namespaces:
         robot1: true
         robot2: false
-        robot3: false
-        robot4: false
       Queue Size: 100
       Value: true
   Enabled: true
   Global Options:
-    Background Color: 0; 28; 66
+    Background Color: 0; 66; 62
     Default Light: true
     Fixed Frame: world
     Frame Rate: 60
@@ -439,25 +427,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 15.5951366
+      Distance: 18.4276047
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 4.38081312
-        Y: 1.13756239
-        Z: 1.24428892
+        X: 4.50875664
+        Y: 0.36642468
+        Z: -0.506218791
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.0500000007
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.00999999978
-      Pitch: 1.56979632
+      Pitch: 1.43979669
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.71813345
+      Yaw: 4.70814228
     Saved: ~
 Window Geometry:
   Displays:

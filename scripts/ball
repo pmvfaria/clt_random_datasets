@@ -3,8 +3,8 @@
 import rospy
 from clt_random_datasets import ball
 
-LOG_LEVEL = rospy.DEBUG
-FREQ_PUB_DEF = 33
+LOG_LEVEL = rospy.INFO
+FREQ_PUB_DEF = 50
 
 if __name__ == '__main__':
 

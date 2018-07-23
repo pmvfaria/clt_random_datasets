@@ -1,0 +1,295 @@
+#! /usr/bin/env python
+
+import argparse
+import math
+import random
+import rospkg
+import sys
+import rosparam
+import xml.etree.cElementTree as ET
+from xml.etree import ElementTree
+from xml.dom import minidom
+
+from clt_random_datasets.robot import robot_name_from_id
+from clt_random_datasets.ball import target_name_from_id
+
+THETA_RANGE = (-math.pi, math.pi)
+PKG = 'clt_random_datasets'
+
+
+def prettify(elem):
+    # Return a pretty-printed XML string for the Element.
+    return minidom.parseString(
+        ElementTree.tostring(elem, 'utf-8')
+    ).toprettyxml(indent="  ")
+
+
+def dist(x1, x2, y1, y2):
+    return math.sqrt(math.pow(x2-x1, 2) + math.pow(y2-y1, 2))
+
+
+def fix_path(pathname):
+    return pathname if pathname[-1] == '/' else pathname + '/'
+
+
+class RobotCreation:
+
+    def __init__(self, r_id, x, y, theta, radius):
+        self.id = r_id
+        self.name = robot_name_from_id(self.id)
+        self.x = x
+        self.y = y
+        self.theta = theta
+        self.radius = radius
+
+    def check_collisions(self, r_list):
+        for other_robot in r_list:
+            if dist(self.x, other_robot.x, self.y, other_robot.y) < (self.radius + robot.radius + 0.1):
+                # collision detected with other_robot x
+                return other_robot.id
+
+        # no collisions detected
+        return -1
+
+    def check_collisions_landmarks(self, lms):
+        lm_id = 0
+        for x, y in lms:
+            if dist(self.x, x, self.y, y) < (self.radius + 0.2):
+                # collision detected with landmark
+                return lm_id
+            lm_id += 1
+
+        # no collision
+        return -1
+
+    def __str__(self):
+        return str([self.x, self.y, self.theta])
+
+
+class BallCreation:
+
+    def __init__(self, idx, x, y, z):
+        self.idx = idx
+        self.name = target_name_from_id(self.idx)
+
+        # assign initial positions to targets
+        self.x = x
+        self.y = y
+        self.z = z
+
+    def __str__(self):
+        return str([self.x, self.y, self.z])
+
+
+if __name__ == '__main__':
+
+    random.seed = None
+
+    # parse arguments from command line
+    parser = argparse.ArgumentParser(description='Process arguments to create launch file')
+    parser.add_argument('-f', '--file', type=str, default='random.launch', help='Desired filename to be placed in launch directory')
+    parser.add_argument('N', type=int, help='Number of robots desired')
+    parser.add_argument('K', type=int, help='Number of targets desired')
+    parser.add_argument('-R', '--radius', type=float, default=0.5, help='Robot radius to be used')
+    parser.add_argument('-H', '--height', type=float, default=0.81, help='Robot height (for visualization purposes, the sensor is on the ground)')
+    parser.add_argument('-lr', '--landmark_range', type=float, default=3.5, help='Maximum range for landmark observations')
+    parser.add_argument('-tr', '--target_range', type=float, default=3.5, help='Maximum range for target observations')
+    parser.add_argument('-ag', '--alpha_gen', type=str, default='0.015, 0.1, 0.5, 0.001', help='Alpha values for generating odometry')
+    parser.add_argument('-dr', '--record', type=lambda s: s.lower() in ['true', 't', '1', 'yes'], default='true', help='Whether to include rosbag recording in launch files')
+    parser.add_argument('-dp', '--dataset_path', type=str, default='/home/$(optenv USER NO_USER_ENV)/datasets/clt_datasets/', help='Path to save dataset (rosbag file), without file name')
+    parser.add_argument('-db', '--dataset_bag', type=str, default='clt_generated_dataset.bag', help='Rosbag file to record to')
+    parser.add_argument('-dt', '--dataset_time', type=int, default='300', help='Time (in seconds) to record dataset before ending simulation')
+    parser.add_argument('-pf', '--pfuclt', type=lambda s: s.lower() in ['true', 't', '1', 'yes'], default='false', help='Whether to generate pfuclt launch files as well')
+    parser.add_argument('-pM', '--num_particles', type=int, default='250', help='Number of particles that PF-UCLT will use')
+    parser.add_argument('-pa', '--alpha_alg', type=str, default='0.015, 0.1, 0.5, 0.001', help='Alpha values for the PF-UCLT algorithm')
+    parser.add_argument('-pr', '--rate', type=float, default='1', help='Rate at which the rosbag file will play during PF-UCLT')
+    parser.add_argument('-ps', '--target_model_stddev', type=float, default=30, help='Standard deviation to use when predicting the target in PF-UCLT')
+    parser.add_argument('-pp', '--pfuclt_dataset_path', type=str, default='/home/$(optenv USER NO_USER_ENV)/datasets/pfuclt/', help='Path to save PF-UCLT rosbag files, without file name')
+    parser.add_argument('-pb', '--pfuclt_dataset_bag', type=str, default='random_pfuclt.bag', help='Path to save PF-UCLT rosbag files, without file name')
+    args = parser.parse_args()
+
+    # fix the paths
+    args.dataset_path = fix_path(args.dataset_path)
+
+    # use rospack for parsing file paths
+    rospack = rospkg.RosPack()
+    pkg_path = rospack.get_path(PKG)
+
+    world_params_file = pkg_path + '/config/world.yaml'
+    try:
+        world_params = rosparam.load_file(world_params_file)[0][0]
+        landmarks = world_params['landmarks']
+        walls = world_params['walls']
+    except rosparam.RosParamException as pe:
+        print('Failure reading parameters from {}: {}'.format(world_params_file, pe))
+        sys.exit(1)
+    except KeyError as ke:
+        print('Error reading parameter {} - is it defined in {}?'.format(ke, world_params_file))
+        sys.exit(1)
+
+    # create robots
+    robot_list = []
+    for n in range(1, args.N+1):
+        print 'Creating robot %d' % n
+
+        robot = RobotCreation(n,
+                              random.uniform(walls['left'], walls['right']),
+                              random.uniform(walls['down'], walls['up']),
+                              random.uniform(*THETA_RANGE), args.radius)
+
+        tries = 0
+        while True:
+            tries += 1
+            if tries > 10000:
+                print('Max tries of 10000 reached, no success with this configuration')
+                sys.exit(1)
+
+            col_robots = robot.check_collisions(robot_list)
+            if col_robots != -1:
+                print('Try #{} - detected collision with robot {} at: {} , {}'.format(
+                    tries, col_robots, robot_list[col_robots - 1].x, robot_list[col_robots - 1].y))
+
+            col_landmarks = robot.check_collisions_landmarks(landmarks)
+            if col_landmarks != -1:
+                print('Try #{} - detected collision with landmark {} at: {} , {}'.format(
+                    tries, col_landmarks, landmarks[col_landmarks][0], landmarks[col_landmarks][1]))
+
+            if col_robots is -1 and col_landmarks is -1:
+                break
+
+            robot.x = random.uniform(walls['left'], walls['right'])
+            robot.y = random.uniform(walls['down'], walls['up'])
+            print 'Trying position {%f, %f}' % (robot.x, robot.y)
+
+        # no longer colliding, insert into list and print location
+        robot_list.append(robot)
+        print 'Robot %d created at {%f,%f,%f}' % (n, robot.x, robot.y, robot.theta)
+
+    # Generate targets in random positions
+    target_list = [BallCreation(
+        idx,
+        random.uniform(walls['left'], walls['right']),
+        random.uniform(walls['down'], walls['up']),
+        random.uniform(0.5, 1.5)
+    ) for idx in range(1, args.K + 1)]
+
+    # now to generate the launch file
+    launch_file = pkg_path + '/launch/' + args.file
+    launch = ET.Element("launch")
+
+    # some global parameters
+    ET.SubElement(launch, 'param', name='use_sim_time', value='false')
+    ET.SubElement(launch, 'param', name='num_robots', type='int', value=str(args.N))
+    ET.SubElement(launch, 'param', name='num_targets', type='int', value=str(args.K))
+
+    # include the world launch file
+    ET.SubElement(launch, 'include', file='$(find {})/launch/world.launch'.format(PKG))
+
+    # ball nodes
+    ball_ns = ET.SubElement(launch, 'group', ns='targets')
+    for target in target_list:
+        node_ball = ET.SubElement(ball_ns, 'node', name=target.name, pkg=PKG, type='ball', output='screen')
+        ET.SubElement(node_ball, 'rosparam', param='initial_pose').text = str(target)
+        ET.SubElement(node_ball, 'param', name='freq_pub', value='100')
+
+    # robot nodes
+    robot_ns = ET.SubElement(launch, 'group', ns='robots')
+    for robot in robot_list:
+        node_robot = ET.SubElement(robot_ns, 'node', name=robot.name, pkg=PKG, type='robot', output='screen')
+        ET.SubElement(node_robot, 'param', name='radius', value=str(args.radius))
+        ET.SubElement(node_robot, 'param', name='height', value=str(args.height))
+        ET.SubElement(node_robot, 'param', name='landmark_range', value=str(args.landmark_range))
+        ET.SubElement(node_robot, 'param', name='target_range', value=str(args.target_range))
+        ET.SubElement(node_robot, 'rosparam', param='initial_pose').text = str(robot)
+        ET.SubElement(node_robot, 'rosparam', param='alphas').text = '[' + args.alpha_gen + ']'
+
+    # node to record everything to bag file
+    if args.record:
+        str_args = '--all --duration=' + str(args.dataset_time) + ' --output-name=' + args.dataset_path + args.dataset_bag
+        rec_dataset = ET.SubElement(launch, 'node', pkg='rosbag', name='record_dataset', type='record', required='true', args=str_args)
+
+    # pretty print the tree to the file in the path variable
+    with open(launch_file, 'w+') as f:
+        f.write(prettify(launch))
+
+    print('Saved dataset random generation launch file to {}'.format(launch_file))
+
+    # ---------------------------------- PFUCLT ------------------------------------ #
+
+    if not args.pfuclt:
+        sys.exit(0)
+
+    args.performer_path = fix_path(args.pfuclt_dataset_path)
+
+    pfuclt_launch = ET.Element('launch')
+    # path to the new launch file in the pfuclt pkg folder
+    try:
+        pfuclt_launch_file = rospack.get_path('pfuclt')
+    except rospkg.ResourceNotFound:
+        print('pfuclt package not found, so the launch file was not generated for it.')
+        sys.exit(1)
+    pfuclt_launch_file += '/launch/' + args.file
+
+    # general parameters to be modified
+    ET.SubElement(pfuclt_launch, 'param', name='use_sim_time', value='true')
+    ET.SubElement(pfuclt_launch, 'arg', name='dataset_path', default=args.dataset_path + args.dataset_bag)
+    ET.SubElement(pfuclt_launch, 'arg', name='debug', default='false')
+    ET.SubElement(pfuclt_launch, 'arg', name='publish', default='true')
+    ET.SubElement(pfuclt_launch, 'arg', name='rate', default=str(args.rate))
+    ET.SubElement(pfuclt_launch, 'arg', name='particles', default=str(args.num_particles))
+    ET.SubElement(pfuclt_launch, 'arg', name='pfuclt_dataset_path', default=args.pfuclt_dataset_path)
+    ET.SubElement(pfuclt_launch, 'arg', name='pfuclt_dataset_bag', default=args.pfuclt_dataset_bag)  # experimentX-y_Nrobots_datasetD_runR.bag
+
+    ET.SubElement(pfuclt_launch, 'param', name='num_robots', value=str(args.N))
+    ET.SubElement(pfuclt_launch, 'param', name='num_targets', value=str(args.K))
+
+    # replay dataset
+    str_args = '--quiet --clock --rate=$(arg rate) $(arg dataset_path)'
+    ET.SubElement(pfuclt_launch, 'node', pkg='rosbag', type='play', name='player', required='true', output='screen', args=str_args)
+
+    # the pfuclt node
+    node_pfuclt = ET.SubElement(pfuclt_launch, 'node', name='pfuclt',
+                                pkg='pfuclt', type='pfuclt_node', output='screen',
+                                args='--debug $(arg debug) --publish $(arg publish)')
+    ET.SubElement(node_pfuclt, 'param', name='percentage_to_keep', value='50')
+    ET.SubElement(node_pfuclt, 'param', name='velocity_estimator_stack_size', value='10')
+    ET.SubElement(node_pfuclt, 'param', name='predict_model_stddev', value=str(args.target_model_stddev))
+    ET.SubElement(node_pfuclt, 'param', name='particles', value='$(arg particles)')
+    alpha_ns = ET.SubElement(pfuclt_launch, 'group', ns='alphas')
+    for robot in robot_list:
+        ET.SubElement(alpha_ns, 'param', name=robot.name + '_alpha', value=args.alpha_alg)
+
+    # other parameters
+    ET.SubElement(node_pfuclt, 'param', name='robot_id', value='1')
+    ET.SubElement(node_pfuclt, 'param', name='K', value='1')
+    ET.SubElement(node_pfuclt, 'rosparam', param='landmark_covariances').text = '[0.02, 0.005, 0.002, 0.005, 0.005]'  # K1 to K5
+
+    # robot initial poses
+    str_pos_init = '['
+    for robot in robot_list:
+        str_pos_init += str(robot.x) + ', ' + str(robot.y) + ', ' + str(robot.theta) + ', '
+    str_pos_init = str_pos_init[:len(str_pos_init)-2]  # remove last comma and whitespace
+    str_pos_init += ']'
+    ET.SubElement(node_pfuclt, 'rosparam', param='initial_positions').text = str_pos_init
+
+    # particle initial ranges
+    str_particles = '['
+    for robot in robot_list:
+        for var in robot.x, robot.y, robot.theta:
+            str_particles += str(var-0.02) + ',' + str(var+0.02) + ','
+    for target in target_list:
+        for var in target.x, target.y, target.z:
+            str_particles += str(var-0.02) + ',' + str(var+0.02) + ','
+    str_particles = str_particles[:len(str_particles)-1] + ']'  # last comma becomes ]
+    ET.SubElement(node_pfuclt, 'rosparam', param='initial_particles').text = str_particles
+
+    # node to record everything from pfuclt and evaluate to bag file
+    if args.record:
+        str_args = '--all --output-name=$(arg performer_path)/$(arg performer_file)'
+        rec_performance = ET.SubElement(pfuclt_launch, 'node', pkg='rosbag', name='record_performance', type='record', args=str_args)
+
+    # pretty print the tree to the file in the path variable
+    with open(pfuclt_launch_file, 'w+') as f:
+        f.write(prettify(pfuclt_launch))
+
+    print('Saved pfuclt launch file to {}'.format(pfuclt_launch_file))

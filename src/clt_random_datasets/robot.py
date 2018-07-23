@@ -9,7 +9,7 @@ import tf
 import tf2_ros
 from std_msgs.msg import ColorRGBA
 from visualization_msgs.msg import MarkerArray, Marker
-from geometry_msgs.msg import PoseWithCovariance, PoseStamped, Point, Quaternion
+from geometry_msgs.msg import PoseStamped, Point, Quaternion
 from tf2_geometry_msgs import PointStamped
 from nav_msgs.msg import Odometry as odometryMsg
 
@@ -33,6 +33,15 @@ CYLINDER_SCALE = 0.9  # for visualization
 GENERATE_OBSERVATIONS_MULTIPLIER = 2
 
 
+def robot_id_from_name(name):
+    # guess robot idx from its name, works up to 99
+    return int(name[-2:-1]) if name[-2].isdigit() else int(name[-1])
+
+
+def robot_name_from_id(idx):
+    return 'robot{}'.format(idx)
+
+
 def norm2(x, y):
     return math.sqrt(math.pow(x, 2) + math.pow(y, 2))
 
@@ -50,9 +59,9 @@ def build_marker_arrow(head):
 
     marker.type = Marker.ARROW
     marker.action = marker.ADD
-    marker.scale.x = 0.01
-    marker.scale.y = 0.03
-    marker.scale.z = 0.05
+    marker.scale.x = 0.03
+    marker.scale.y = 0.04
+    marker.scale.z = 0.07
     marker.color = ColorRGBA(0.2, 0.2, 0.2, 1)
 
     # tail is 0,0,0
@@ -136,6 +145,7 @@ def measurement_array_to_markers(msg, namespace):
 
 class RobotInfo(object):
     # The RobotInfo class holds information about other robots, such as their name, current pose, radius
+
     def __str__(self):
         return str(self.__class__) + ": " + str(self.__dict__)
 
@@ -144,11 +154,10 @@ class RobotInfo(object):
 
         if type(idx_or_name) == str:
             self.name = idx_or_name  # type: str
-            # guess robot idx from its name, works up to 99
-            self.idx = int(self.name[-2:-1]) if self.name[-2].isdigit() else int(self.name[-1])
+            self.idx = robot_id_from_name(self.name)
         elif type(idx_or_name) == int:
             self.idx = idx_or_name  # type: int
-            self.name = 'robot' + str(self.idx)
+            self.name = robot_name_from_id(self.idx)
         else:
             raise TypeError("idx_or_name must be of type 'str' (construct by name) or 'int' (construct by id)")
 
@@ -231,9 +240,8 @@ class Robot(object):
             num_robots = rospy.get_param('/num_robots')  # type: int
             num_targets = rospy.get_param('/num_targets')  # type: int
             self.alphas = rospy.get_param('~alphas')  # type: list
-            self.landmark_collision = rospy.get_param('~landmark_collision', True)  # type: bool
-            self.threshold_obs_landmark = rospy.get_param('~landmark_obs_threshold', 3.0)  # type: float
-            self.threshold_obs_target = rospy.get_param('~target_obs_threshold', 3.0)  # type: float
+            self.threshold_obs_landmark = rospy.get_param('~landmark_range', 3.0)  # type: float
+            self.threshold_obs_target = rospy.get_param('~target_range', 3.0)  # type: float
         except rospy.ROSException, err:
             rospy.logerr('Error in parameter server - %s', err)
             raise
@@ -242,7 +250,7 @@ class Robot(object):
             raise
 
         # save local observations of landmarks
-        # TODO accomplish similarly to RobotInfo and BallInfo?
+        # TODO change to something similar to RobotInfo and BallInfo?
         self.landmark_obs_local = []
 
         # build walls list from the dictionary
@@ -716,7 +724,7 @@ class Robot(object):
                 # Future collision detected
                 return True
 
-        if self.landmark_collision is True and self.landmark_obs_local is not None:
+        if self.landmark_obs_local is not None:
             for obs in self.landmark_obs_local:
                 dist = np.linalg.norm(obs)
                 ang = normalize_angle(math.atan2(obs[1], obs[0]))

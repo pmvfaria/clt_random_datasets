@@ -24,6 +24,15 @@ EXPERIMENTAL_ENABLE_COLLISIONS = True
 Collision = Enum('collision', 'none side top')
 
 
+def target_id_from_name(name):
+    # guess robot idx from its name, works up to 99
+    return int(name[-2:-1]) if name[-2].isdigit() else int(name[-1])
+
+
+def target_name_from_id(idx):
+    return 'target{}'.format(idx)
+
+
 def unit_vector(v):
     # type: (np.array) -> np.array
     return v / np.linalg.norm(v)
@@ -76,11 +85,10 @@ class BallInfo(object):
 
         if type(idx_or_name) == str:
             self.name = idx_or_name  # type: str
-            # guess target idx from its name, works up to 99
-            self.idx = int(self.name[-2:-1]) if self.name[-2].isdigit() else int(self.name[-1])
+            self.idx = target_id_from_name(self.name)
         elif type(idx_or_name) == int:
             self.idx = idx_or_name  # type: int
-            self.name = 'target' + str(self.idx)
+            self.name = target_name_from_id(self.idx)
         else:
             raise TypeError("idx_or_name must be of type 'str' (construct by name) or 'int' (construct by id)")
 

@@ -5,7 +5,7 @@ from math import pi
 from clt_random_datasets import robot
 from clt_random_datasets import odometry
 
-LOG_LEVEL = rospy.DEBUG
+LOG_LEVEL = rospy.INFO
 ODOMETRY_FREQ_DEFAULT = 50
 
 if __name__ == '__main__':

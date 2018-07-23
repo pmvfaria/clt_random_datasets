@@ -1,0 +1,40 @@
+<?xml version="1.0" ?>
+<launch>
+  <param name="use_sim_time" value="false"/>
+  <param name="num_robots" type="int" value="2"/>
+  <param name="num_targets" type="int" value="3"/>
+  <include file="$(find clt_random_datasets)/launch/world.launch"/>
+  <group ns="targets">
+    <node name="target1" output="screen" pkg="clt_random_datasets" type="ball">
+      <rosparam param="initial_pose">[3.7446133673913757, 4.995498476225176, 1.301619212510833]</rosparam>
+      <param name="freq_pub" value="100"/>
+    </node>
+    <node name="target2" output="screen" pkg="clt_random_datasets" type="ball">
+      <rosparam param="initial_pose">[4.48828065828609, -2.7892933233188186, 1.442515005434763]</rosparam>
+      <param name="freq_pub" value="100"/>
+    </node>
+    <node name="target3" output="screen" pkg="clt_random_datasets" type="ball">
+      <rosparam param="initial_pose">[3.8517214590020115, 2.3325639415463693, 1.1519151109500099]</rosparam>
+      <param name="freq_pub" value="100"/>
+    </node>
+  </group>
+  <group ns="robots">
+    <node name="robot1" output="screen" pkg="clt_random_datasets" type="robot">
+      <param name="radius" value="0.5"/>
+      <param name="height" value="0.81"/>
+      <param name="landmark_range" value="3.5"/>
+      <param name="target_range" value="3.5"/>
+      <rosparam param="initial_pose">[1.5998727199116964, 1.403743028269128, 2.570037873501712]</rosparam>
+      <rosparam param="alphas">[0.015, 0.1, 0.5, 0.001]</rosparam>
+    </node>
+    <node name="robot2" output="screen" pkg="clt_random_datasets" type="robot">
+      <param name="radius" value="0.5"/>
+      <param name="height" value="0.81"/>
+      <param name="landmark_range" value="3.5"/>
+      <param name="target_range" value="3.5"/>
+      <rosparam param="initial_pose">[5.493639210942203, -0.5984226540696733, 1.4606423919545763]</rosparam>
+      <rosparam param="alphas">[0.015, 0.1, 0.5, 0.001]</rosparam>
+    </node>
+  </group>
+  <node args="--all --duration=300 --output-name=/home/$(optenv USER NO_USER_ENV)/datasets/clt_datasets/clt_generated_dataset.bag" name="record_dataset" pkg="rosbag" required="true" type="record"/>
+</launch>
