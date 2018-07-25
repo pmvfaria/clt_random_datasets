@@ -29,21 +29,28 @@ MAX_ANGLE_FROM_WALLS = pi / 2.0  # radians
 RADIUS_DEFAULT = 5.0  # meters, huge on purpose
 HEIGHT_DEFAULT = 1.0  # meters
 CYLINDER_SCALE = 0.9  # for visualization
+ALPHAS_DEFAULT = [0.015, 0.1, 0.5, 0.001]
 
 GENERATE_OBSERVATIONS_MULTIPLIER = 2
 
 
 def robot_id_from_name(name):
     # guess robot idx from its name, works up to 99
-    return int(name[-2:-1]) if name[-2].isdigit() else int(name[-1])
+    try:
+        idx = int(name[-2:-1]) if name[-2].isdigit() else int(name[-1])
+    except ValueError:
+        rospy.logfatal('Invalid robot name: {} , must end with a digit'.format(name))
+        exit(1)
+    return idx
 
 
 def robot_name_from_id(idx):
     return 'robot{}'.format(idx)
 
 
-def norm2(x, y):
-    return math.sqrt(math.pow(x, 2) + math.pow(y, 2))
+def fnorm(*args):
+    # type: (*float) -> float
+    return math.sqrt(math.fsum([num**2 for num in args]))
 
 
 def orientation_to_theta(orientation):
@@ -92,7 +99,7 @@ def check_occlusions(sensor, target, radius, obj):
     arr_object = np.array([obj[0] - sensor[0], obj[1] - sensor[1]])
 
     # Special case if target is closer than the object + radius, no occlusion
-    if np.linalg.norm(arr_target) + radius < np.linalg.norm(arr_object):
+    if fnorm(arr_target[0], arr_target[1]) + radius < fnorm(arr_object[0], arr_object[1]):
         return False
 
     # Auxiliary unit vector
@@ -206,9 +213,8 @@ class RobotInfo(object):
         # Obtain this robot's pose in the arg frame
         try:
             # find latest time for transformation
-            tmp_ps = deepcopy(self.gt_pose)
-            tmp_ps.header.stamp = tf_buffer.get_latest_common_time(frame, self.frame)
-            self.local_pose = tf_buffer.transform(tmp_ps, frame)
+            self.gt_pose.header.stamp = tf_buffer.get_latest_common_time(frame, self.frame)
+            self.local_pose = tf_buffer.transform(self.gt_pose, frame)
         except tf.Exception, err:
             # return the old local pose anyway, but notify with success False
             rospy.logwarn("Local pose not updated! TF Exception when transforming to local pose - %s", err)
@@ -239,7 +245,6 @@ class Robot(object):
             walls = rospy.get_param('/world/walls')  # type: dict
             num_robots = rospy.get_param('/num_robots')  # type: int
             num_targets = rospy.get_param('/num_targets')  # type: int
-            self.alphas = rospy.get_param('~alphas')  # type: list
             self.threshold_obs_landmark = rospy.get_param('~landmark_range', 3.0)  # type: float
             self.threshold_obs_target = rospy.get_param('~target_range', 3.0)  # type: float
         except rospy.ROSException, err:
@@ -249,9 +254,13 @@ class Robot(object):
             rospy.logerr('Value of %s not set', err)
             raise
 
+        if not rospy.has_param('~alphas'):
+            rospy.logwarn('Using default alphas since none were given: {}'.format(ALPHAS_DEFAULT))
+        self.alphas = rospy.get_param('~alphas', ALPHAS_DEFAULT)  # type: list
+
         # save local observations of landmarks
         # TODO change to something similar to RobotInfo and BallInfo?
-        self.landmark_obs_local = []
+        self.landmark_obs_local = []  # type: list(np.array)
 
         # build walls list from the dictionary
         # tuple -> (location, variable to check, reference angle)
@@ -325,13 +334,17 @@ class Robot(object):
                              for idx in range(num_robots) if idx+1 != self.info.idx]
 
         # wait for other robots
+        to_delete = []
         for robot in self.other_robots:
             try:
                 rospy.wait_for_service(robot.odometry_service_name, timeout=3)
             except rospy.ROSException:
-                rospy.logerr('Timeout while waiting for {}, the simulation of '
-                             'this robot ( {} ) will not take it into account'.format(robot.name, self.info.idx))
-                self.other_robots.remove(robot)
+                rospy.logerr('Timeout while waiting for {}, the simulation will not take it into account'.
+                             format(robot.name, self.info.idx))
+                to_delete.append(robot)
+
+        for offline_robot in to_delete:
+            self.other_robots.remove(offline_robot)
 
         # publish initial pose
         self.publish_gt_pose()
@@ -369,9 +382,7 @@ class Robot(object):
 
         # update local poses of all robots in this robot's frame
         for robot in self.other_robots:
-            success, pose_local = robot.update_local_pose(self.info.frame, self.tf_buffer)
-            if not success:
-                return
+            robot.update_local_pose(self.info.frame, self.tf_buffer)
 
         # if rotating timer is set, don't even check for collisions
         if not self.rotating_timer_set:
@@ -716,8 +727,10 @@ class Robot(object):
 
         for robot in self.other_robots:
             pose_local = robot.get_local_pose()
+            if pose_local is None:
+                continue
 
-            dist = norm2(pose_local.pose.position.x, pose_local.pose.position.y)
+            dist = fnorm(pose_local.pose.position.x, pose_local.pose.position.y)
             ang = normalize_angle(math.atan2(pose_local.pose.position.y, pose_local.pose.position.x))
 
             # if next to other robot and going to walk into it, return collision
@@ -738,8 +751,8 @@ class Robot(object):
                 return True
 
         if self.landmark_obs_local is not None:
-            for obs in self.landmark_obs_local:
-                dist = np.linalg.norm(obs)
+            for obs in self.landmark_obs_local:  # type: np.array
+                dist = fnorm(obs[0], obs[1])
                 ang = normalize_angle(math.atan2(obs[1], obs[0]))
 
                 # if close to landmark and going to walk into it, return collision
