@@ -288,7 +288,7 @@ class Robot(object):
 
         # pose marker
         self.cylinder = Marker(action=Marker.ADD, type=Marker.CYLINDER, color=ColorRGBA(0.5, 0.5, 0.5, 1.0),
-                               ns='robots_gt', id=self.info.idx)
+                               ns=self.info.name, id=self.info.idx)
         self.cylinder.header.frame_id = self.info.frame
         self.cylinder.action = Marker.ADD
         self.cylinder.type = Marker.CYLINDER
@@ -296,7 +296,6 @@ class Robot(object):
         self.cylinder.scale.z = self.info.height
         self.cylinder.pose.position.z = self.info.height/2
         self.cylinder.color = ColorRGBA(0.5, 0.5, 0.5, 1.0)
-        self.cylinder.ns = 'robots_gt'
 
         # odometry service
         self.info.odometry_service_client.wait_for_service(timeout=3)
