@@ -38,10 +38,10 @@ def robot_id_from_name(name):
     # guess robot idx from its name, works up to 99
     try:
         idx = int(name[-2:-1]) if name[-2].isdigit() else int(name[-1])
+        return idx
     except ValueError:
         rospy.logfatal('Invalid robot name: {} , must end with a digit'.format(name))
         exit(1)
-    return idx
 
 
 def robot_name_from_id(idx):

@@ -26,7 +26,12 @@ Collision = Enum('collision', 'none side top')
 
 def target_id_from_name(name):
     # guess robot idx from its name, works up to 99
-    return int(name[-2:-1]) if name[-2].isdigit() else int(name[-1])
+    try:
+        idx = int(name[-2:-1]) if name[-2].isdigit() else int(name[-1])
+        return idx
+    except ValueError:
+        rospy.logfatal('Invalid robot name: {} , must end with a digit'.format(name))
+        exit(1)
 
 
 def target_name_from_id(idx):
@@ -239,7 +244,18 @@ class Ball(object):
             self.timer_pub = rospy.Timer(rospy.Duration.from_sec(self.period_pub), self.pub_callback)
 
             if wait_for_robots:
-                [rospy.wait_for_service(robot.odometry_service_name, timeout=3) for robot in self.robots]
+                # wait for other robots
+                to_delete = []
+                for robot in self.robots:
+                    try:
+                        rospy.wait_for_service(robot.odometry_service_name, timeout=3)
+                    except rospy.ROSException:
+                        rospy.logerr('Timeout while waiting for {}, the simulation will not take it into account'.
+                                     format(robot.name, self.info.idx))
+                        to_delete.append(robot)
+
+                for offline_robot in to_delete:
+                    self.robots.remove(offline_robot)
         else:
             self.timer_pub.shutdown()
 
