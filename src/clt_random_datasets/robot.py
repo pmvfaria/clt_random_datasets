@@ -324,6 +324,19 @@ class Robot(object):
         self.other_robots = [RobotInfo(idx+1, create_callback=True, create_service_proxy=False)
                              for idx in range(num_robots) if idx+1 != self.info.idx]
 
+        # wait for other robots
+        for robot in self.other_robots:
+            try:
+                rospy.wait_for_service(robot.odometry_service_name, timeout=3)
+            except rospy.ROSException:
+                rospy.logerr('Timeout while waiting for {}, the simulation of '
+                             'this robot ( {} ) will not take it into account'.format(robot.name, self.info.idx))
+                self.other_robots.remove(robot)
+
+        # publish initial pose
+        self.publish_gt_pose()
+        rospy.sleep(0.1)
+
     def run(self, flag):
         # check if flag is different from current
         if self.is_running == flag:
