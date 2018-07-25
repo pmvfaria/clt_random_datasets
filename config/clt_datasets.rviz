@@ -6,10 +6,7 @@ Panels:
       Expanded:
         - /Global Options1
         - /Target11/Status1
-        - /OMNI41/GTPose1
-        - /Landmark Observations1
         - /Landmark Observations1/Namespaces1
-        - /Target Observations1
         - /Target Observations1/Namespaces1
       Splitter Ratio: 0.497222215
     Tree Height: 709
@@ -69,18 +66,26 @@ Visualization Manager:
           Value: true
         robot2:
           Value: true
+        robot3:
+          Value: true
+        robot4:
+          Value: true
         world:
           Value: true
-      Marker Scale: 2
+      Marker Scale: 3
       Name: TF
       Show Arrows: false
-      Show Axes: true
+      Show Axes: false
       Show Names: true
       Tree:
         world:
           robot1:
             {}
           robot2:
+            {}
+          robot3:
+            {}
+          robot4:
             {}
       Update Interval: 0
       Value: true
@@ -204,204 +209,93 @@ Visualization Manager:
       Topic: /targets/target10/sim_pose
       Unreliable: false
       Value: true
-    - Class: rviz/Group
-      Displays:
-        - Alpha: 1
-          Axes Length: 1
-          Axes Radius: 0.100000001
-          Class: rviz/Pose
-          Color: 255; 25; 0
-          Enabled: true
-          Head Length: 0.300000012
-          Head Radius: 0.100000001
-          Name: GTPose
-          Shaft Length: 1
-          Shaft Radius: 0.0500000007
-          Shape: Arrow
-          Topic: /robots/robot1/sim_pose
-          Unreliable: false
-          Value: true
+    - Alpha: 1
+      Axes Length: 1
+      Axes Radius: 0.100000001
+      Class: rviz/Pose
+      Color: 182; 182; 182
       Enabled: true
-      Name: OMNI1
-    - Class: rviz/Group
-      Displays:
-        - Alpha: 1
-          Axes Length: 1
-          Axes Radius: 0.100000001
-          Class: rviz/Pose
-          Color: 255; 25; 0
-          Enabled: true
-          Head Length: 0.300000012
-          Head Radius: 0.100000001
-          Name: GTPose
-          Shaft Length: 1
-          Shaft Radius: 0.0500000007
-          Shape: Arrow
-          Topic: /robots/robot2/sim_pose
-          Unreliable: false
-          Value: true
-        - Class: rviz/MarkerArray
-          Enabled: false
-          Marker Topic: /omni2/landmarkObs
-          Name: landmarkObservations
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: false
-        - Class: rviz/MarkerArray
-          Enabled: false
-          Marker Topic: /omni2/robotObs
-          Name: robotObs
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: false
-        - Class: rviz/Marker
-          Enabled: true
-          Marker Topic: /omni2/targetObs
-          Name: targetObervations
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: true
-        - Class: rviz/Marker
-          Enabled: true
-          Marker Topic: /omni2/poseMarker
-          Name: Cylinder
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: true
+      Head Length: 0.200000003
+      Head Radius: 0.200000003
+      Name: Robot1
+      Shaft Length: 0.600000024
+      Shaft Radius: 0.0500000007
+      Shape: Arrow
+      Topic: /robots/robot1/sim_pose
+      Unreliable: false
+      Value: true
+    - Alpha: 1
+      Axes Length: 1
+      Axes Radius: 0.100000001
+      Class: rviz/Pose
+      Color: 182; 182; 182
       Enabled: true
-      Name: OMNI2
-    - Class: rviz/Group
-      Displays:
-        - Alpha: 1
-          Axes Length: 1
-          Axes Radius: 0.100000001
-          Class: rviz/Pose
-          Color: 255; 25; 0
-          Enabled: true
-          Head Length: 0.300000012
-          Head Radius: 0.100000001
-          Name: GTPose
-          Shaft Length: 1
-          Shaft Radius: 0.0500000007
-          Shape: Arrow
-          Topic: /robots/robot3/sim_pose
-          Unreliable: false
-          Value: true
-        - Class: rviz/MarkerArray
-          Enabled: false
-          Marker Topic: /omni3/landmarkObs
-          Name: landmarkObservations
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: false
-        - Class: rviz/MarkerArray
-          Enabled: false
-          Marker Topic: /omni3/robotObs
-          Name: robotObs
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: false
-        - Class: rviz/Marker
-          Enabled: true
-          Marker Topic: /omni3/targetObs
-          Name: targetObervations
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: true
-        - Class: rviz/Marker
-          Enabled: true
-          Marker Topic: /omni3/poseMarker
-          Name: Cylinder
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: true
+      Head Length: 0.200000003
+      Head Radius: 0.200000003
+      Name: Robot2
+      Shaft Length: 0.600000024
+      Shaft Radius: 0.0500000007
+      Shape: Arrow
+      Topic: /robots/robot2/sim_pose
+      Unreliable: false
+      Value: true
+    - Alpha: 1
+      Axes Length: 1
+      Axes Radius: 0.100000001
+      Class: rviz/Pose
+      Color: 182; 182; 182
       Enabled: true
-      Name: OMNI3
-    - Class: rviz/Group
-      Displays:
-        - Alpha: 1
-          Axes Length: 1
-          Axes Radius: 0.100000001
-          Class: rviz/Pose
-          Color: 255; 25; 0
-          Enabled: true
-          Head Length: 0.300000012
-          Head Radius: 0.100000001
-          Name: GTPose
-          Shaft Length: 1
-          Shaft Radius: 0.0500000007
-          Shape: Arrow
-          Topic: /robots/robot4/sim_pose
-          Unreliable: false
-          Value: true
-        - Class: rviz/MarkerArray
-          Enabled: false
-          Marker Topic: /omni4/landmarkObs
-          Name: landmarkObservations
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: false
-        - Class: rviz/MarkerArray
-          Enabled: false
-          Marker Topic: /omni4/robotObs
-          Name: robotObs
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: false
-        - Class: rviz/Marker
-          Enabled: true
-          Marker Topic: /omni4/targetObs
-          Name: targetObervations
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: true
-        - Class: rviz/Marker
-          Enabled: true
-          Marker Topic: /omni4/poseMarker
-          Name: Cylinder
-          Namespaces:
-            {}
-          Queue Size: 100
-          Value: true
+      Head Length: 0.200000003
+      Head Radius: 0.200000003
+      Name: Robot3
+      Shaft Length: 0.600000024
+      Shaft Radius: 0.0500000007
+      Shape: Arrow
+      Topic: /robots/robot3/sim_pose
+      Unreliable: false
+      Value: true
+    - Alpha: 1
+      Axes Length: 1
+      Axes Radius: 0.100000001
+      Class: rviz/Pose
+      Color: 182; 182; 182
       Enabled: true
-      Name: OMNI4
+      Head Length: 0.200000003
+      Head Radius: 0.200000003
+      Name: Robot4
+      Shaft Length: 0.600000024
+      Shaft Radius: 0.0500000007
+      Shape: Arrow
+      Topic: /robots/robot4/sim_pose
+      Unreliable: false
+      Value: true
     - Class: rviz/Marker
       Enabled: true
       Marker Topic: /visualization/robot_positions
       Name: Robot Cylinders
       Namespaces:
-        robots_gt: true
+        robot1: true
+        robot2: true
+        robot3: true
+        robot4: true
       Queue Size: 100
       Value: true
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /visualization/landmark_obs
       Name: Landmark Observations
       Namespaces:
-        robot1: true
-        robot2: false
+        {}
       Queue Size: 100
-      Value: true
+      Value: false
     - Class: rviz/MarkerArray
-      Enabled: true
+      Enabled: false
       Marker Topic: /visualization/target_obs
       Name: Target Observations
       Namespaces:
-        robot1: true
-        robot2: false
+        {}
       Queue Size: 100
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 0; 66; 62
@@ -427,25 +321,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 18.4276047
+      Distance: 19.5186615
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 4.50875664
-        Y: 0.36642468
-        Z: -0.506218791
+        X: 4.69311237
+        Y: 1.0401938
+        Z: -0.505549014
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.0500000007
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.00999999978
-      Pitch: 1.19479668
+      Pitch: 1.56979632
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.71813202
+      Yaw: 4.79313898
     Saved: ~
 Window Geometry:
   Displays:
