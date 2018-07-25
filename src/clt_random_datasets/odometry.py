@@ -85,6 +85,7 @@ class Odometry(object):
 
         # state of the odometry generation
         self._state = Odometry.stateTypes['WalkForward']
+        self.last_rotation_state = None
 
         # initiate random seed with current system time if nothing given
         random.seed(seed)
@@ -149,10 +150,22 @@ class Odometry(object):
             if Odometry.stateTypes[new_state] == self._state:
                 rospy.logdebug('Desired odometry state is already %s' % new_state)
             else:
-                # 50/50 chance of inverting rotation if that is the new state
+
                 if new_state == 'Rotate':
-                    if random.randint(0, 1):
-                        new_state = 'RotateInv'
+                    # First rotation state, 50/50 chance
+                    if self.last_rotation_state is None:
+                        if random.randint(0, 1):
+                            new_state = 'RotateInv'
+
+                    # 80% chance of keeping the last rotation state, 20% of inverting
+                    else:
+                        if random.random() < 0.8:
+                            new_state = self.last_rotation_state
+                        else:
+                            new_state = 'RotateInv' if self.last_rotation_state == 'Rotate' else 'Rotate'
+
+                    # save last rotation state
+                    self.last_rotation_state = new_state
 
                 rospy.logdebug('Changed odometry state to %s' % new_state)
                 self._state = Odometry.stateTypes[new_state]
