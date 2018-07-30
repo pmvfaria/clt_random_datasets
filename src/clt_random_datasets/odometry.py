@@ -3,6 +3,12 @@ import random
 from clt_msgs.msg import CustomOdometry as customOdometryMsg
 from clt_msgs.srv import SendString, SendStringResponse
 
+# R1 = Initial Rotation
+# T = Translation
+# R2 = Final Rotation
+
+# WF = Walking Forward
+# R = Rotating
 LEFT_T_WF = 0.020
 RIGHT_T_WF = 0.030
 MEAN_R1_WF = 0.000
@@ -76,7 +82,7 @@ class Odometry(object):
     invStateTypes = {0: 'WalkFoward', 1: 'Rotate', 2: 'RotateInv'}
     varTypes = dict(t=0, r1=1, r2=2)
 
-    def __init__(self, seed=None, freq=10):
+    def __init__(self, seed=None, freq=10, frame_id='INVALID'):
         # type: (int, int) -> None
         """
         :param seed: if specified, the RNG seed will be fixed (useful for debugging)
@@ -126,6 +132,7 @@ class Odometry(object):
 
         # initiate the msg to be quicker in the loop
         self.msg = customOdometryMsg()
+        self.msg.header.frame_id = frame_id
 
         # flag for running if loop is used
         self.is_running = False

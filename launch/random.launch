@@ -36,5 +36,4 @@
       <rosparam param="alphas">[0.015, 0.1, 0.5, 0.001]</rosparam>
     </node>
   </group>
-  <node args="--all --duration=300 --output-name=/home/$(optenv USER NO_USER_ENV)/datasets/clt_datasets/clt_generated_dataset.bag" name="record_dataset" pkg="rosbag" required="true" type="record"/>
 </launch>

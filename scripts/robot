@@ -18,8 +18,8 @@ if __name__ == '__main__':
 
     odometry_freq = rospy.get_param('~odometry_frequency', ODOMETRY_FREQ_DEFAULT)
 
-    odometry = odometry.Odometry(freq=odometry_freq)
-    robot = robot.Robot(initial_pose, name=name)
+    odometry = odometry.Odometry(freq=odometry_freq, frame_id=name)
+    robot = robot.Robot(initial_pose, name=name, odometry_freq=odometry_freq)
 
     odometry.run(True)
     robot.run(True)

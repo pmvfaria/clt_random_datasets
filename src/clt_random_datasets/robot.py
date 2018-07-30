@@ -11,9 +11,8 @@ from std_msgs.msg import ColorRGBA
 from visualization_msgs.msg import MarkerArray, Marker
 from geometry_msgs.msg import PoseStamped, Point, Quaternion
 from tf2_geometry_msgs import PointStamped
-from nav_msgs.msg import Odometry as odometryMsg
 
-from clt_msgs.msg import MeasurementArray, Measurement, CustomOdometry as customOdometryMsg
+from clt_msgs.msg import MeasurementArray, Measurement, CustomOdometry
 from clt_msgs.srv import SendString
 
 # relative
@@ -226,11 +225,14 @@ class RobotInfo(object):
 class Robot(object):
     # The Robot class holds the various robot components, such as odometry, laser-based observations, etc
 
-    def __init__(self, init_pose, name='ROBOT_DEFAULT'):
+    def __init__(self, init_pose, name='ROBOT_DEFAULT', odometry_freq=10):
         # type: (dict, str) -> None
 
         # initial robot pose
         self.pose = np.array(init_pose)
+
+        # odometry frequency, will be used to determine velocity
+        self.odometry_freq = odometry_freq
 
         # initiate seed with current system time
         random.seed = None
@@ -278,11 +280,10 @@ class Robot(object):
         self.is_rotating = False
         self.rotating_timer_set = False
 
-        self.last_odometry = None  # type: customOdometryMsg
+        self.last_odometry = None  # type: CustomOdometry
 
         self.generate_observations_counter = 0
 
-        self.msg_odometry = odometryMsg()
         self.gt_pose_msg = PoseStamped()
         self.gt_pose_msg.header.frame_id = WORLD_FRAME
 
@@ -302,11 +303,11 @@ class Robot(object):
         self.info.odometry_service_client('WalkForward')
 
         # subscribers
-        self.sub_odometry = rospy.Subscriber('~custom_odometry', customOdometryMsg,
+        self.sub_odometry = rospy.Subscriber('~custom_odometry', CustomOdometry,
                                              callback=self.odometry_callback, queue_size=100)
 
         # publishers
-        self.pub_odometry = rospy.Publisher('~odometry', odometryMsg, queue_size=50)
+        self.pub_odometry = rospy.Publisher('~odometry', CustomOdometry, queue_size=50)
         self.pub_gt_pose = rospy.Publisher('~sim_pose', PoseStamped, queue_size=10)
         self.pub_cylinder = rospy.Publisher('/visualization/robot_positions', Marker, queue_size=5)
         self.pub_landmark_observations_custom = rospy.Publisher('~landmark_measurements', MeasurementArray, queue_size=5)
@@ -407,11 +408,11 @@ class Robot(object):
                 self.is_rotating = True
 
     def odometry_callback(self, msg):
-        # type: (customOdometryMsg) -> None
+        # type: (CustomOdometry) -> None
         self.last_odometry = msg
 
     def handle_odometry(self, msg):
-        # type: (customOdometryMsg) -> None
+        # type: (CustomOdometry) -> None
 
         # update pose with new odometry
         try:
@@ -429,7 +430,7 @@ class Robot(object):
             raise
 
         try:
-            self.pub_odometry.publish(self.convert_odometry(msg))
+            self.pub_odometry.publish(self.noisy_odometry(msg))
         except rospy.ROSException, err:
             rospy.logdebug('ROSException - %s', err)
 
@@ -441,12 +442,9 @@ class Robot(object):
         self.is_rotating = False
         self.rotating_timer_set = False
 
-    def convert_odometry(self, msg):
-        # type: (customOdometryMsg) -> odometryMsg
+    def noisy_odometry(self, msg):
+        # type: (CustomOdometry) -> CustomOdometry
 
-        converted_msg = odometryMsg()
-
-        # first we want to add noise according to the alpha motion model
         alphas = self.alphas
         r1abs = abs(msg.rot1)
         r2abs = abs(msg.rot2)
@@ -457,16 +455,13 @@ class Robot(object):
         trans_hat = msg.translation + random.gauss(0, alphas[2] * t + alphas[3] * (r1abs + r2abs))
         rot2_hat = msg.rot2 + random.gauss(0, alphas[0] * r2abs + alphas[1] * t)
 
-        # convert from {translation, rot1, rot2} to our state-space variables {x, y, theta} using previous values
-        converted_msg.header.stamp = msg.header.stamp
-        converted_msg.pose.pose.position.x = trans_hat * math.cos(rot1_hat)
-        converted_msg.pose.pose.position.y = trans_hat * math.sin(rot2_hat)
-        delta_theta = rot1_hat + rot2_hat
-        quaternion = tf.transformations.quaternion_about_axis(delta_theta, [0, 0, 1])
-        converted_msg.pose.pose.orientation.x = quaternion[0]
-        converted_msg.pose.pose.orientation.y = quaternion[1]
-        converted_msg.pose.pose.orientation.z = quaternion[2]
-        converted_msg.pose.pose.orientation.w = quaternion[3]
+        converted_msg = CustomOdometry(
+            header=msg.header,
+            rot1=rot1_hat,
+            translation=trans_hat,
+            rot2=rot2_hat,
+            state=msg.state
+        )
 
         return converted_msg
 
