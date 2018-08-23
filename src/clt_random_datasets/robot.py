@@ -561,11 +561,14 @@ class Robot(object):
                         break
 
             # Fill the single measurement
+            meas.label = Measurement.LANDMARK_RANGE_BEARING
             meas.label = 'landmark'
             meas.id = id_counter
             meas.robot = self.info.idx
             meas.center.x, meas.center.y, meas.center.z = pos_local_noisy_np
             meas.noise = np.linalg.norm(noises)
+            meas.range = dist
+            meas.bearing = np.arctan2(pos_local_np[1], pos_local_np[0])
             if occlusion:
                 meas.status = Measurement.OCCLUDED
             elif oor:

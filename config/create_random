@@ -13,7 +13,6 @@ from xml.dom import minidom
 from clt_random_datasets.robot import robot_name_from_id
 from clt_random_datasets.ball import target_name_from_id
 
-THETA_RANGE = (-math.pi, math.pi)
 PKG = 'clt_random_datasets'
 
 
@@ -95,11 +94,11 @@ if __name__ == '__main__':
     parser.add_argument('-lr', '--landmark_range', type=float, default=3.5, help='Maximum range for landmark observations')
     parser.add_argument('-tr', '--target_range', type=float, default=3.5, help='Maximum range for target observations')
     parser.add_argument('-ag', '--alpha_gen', type=str, default='0.015, 0.1, 0.5, 0.001', help='Alpha values for generating odometry')
-    parser.add_argument('-dr', '--record', type=lambda s: s.lower() in ['true', 't', '1', 'yes'], default='true', help='Whether to include rosbag recording in launch files')
+    parser.add_argument('-dr', '--record', action='store_true', help='Whether to include rosbag recording in launch files')
     parser.add_argument('-dp', '--dataset_path', type=str, default='/home/$(optenv USER NO_USER_ENV)/datasets/clt_datasets/', help='Path to save dataset (rosbag file), without file name')
     parser.add_argument('-db', '--dataset_bag', type=str, default='clt_generated_dataset.bag', help='Rosbag file to record to')
     parser.add_argument('-dt', '--dataset_time', type=int, default='300', help='Time (in seconds) to record dataset before ending simulation')
-    parser.add_argument('-pf', '--pfuclt', type=lambda s: s.lower() in ['true', 't', '1', 'yes'], default='false', help='Whether to generate pfuclt launch files as well')
+    parser.add_argument('-pf', '--pfuclt', action='store_true', default='false', help='Whether to generate pfuclt launch files as well')
     parser.add_argument('-pM', '--num_particles', type=int, default='250', help='Number of particles that PF-UCLT will use')
     parser.add_argument('-pa', '--alpha_alg', type=str, default='0.015, 0.1, 0.5, 0.001', help='Alpha values for the PF-UCLT algorithm')
     parser.add_argument('-pr', '--rate', type=float, default='1', help='Rate at which the rosbag file will play during PF-UCLT')
@@ -135,7 +134,7 @@ if __name__ == '__main__':
         robot = RobotCreation(n,
                               random.uniform(walls['left'], walls['right']),
                               random.uniform(walls['down'], walls['up']),
-                              random.uniform(*THETA_RANGE), args.radius)
+                              random.uniform(-math.pi, math.pi), args.radius)
 
         tries = 0
         while True:
@@ -250,7 +249,7 @@ if __name__ == '__main__':
 
     # the pfuclt node
     node_pfuclt = ET.SubElement(pfuclt_launch, 'node', name='pfuclt',
-                                pkg='pfuclt', type='pfuclt_node', output='screen',
+                                pkg='pfuclt', type='pfuclt_node', output='screen', required='true',
                                 args='--debug $(arg debug) --publish $(arg publish)')
     ET.SubElement(node_pfuclt, 'param', name='percentage_to_keep', value='50')
     ET.SubElement(node_pfuclt, 'param', name='velocity_estimator_stack_size', value='10')
@@ -265,24 +264,16 @@ if __name__ == '__main__':
     ET.SubElement(node_pfuclt, 'param', name='K', value='1')
     ET.SubElement(node_pfuclt, 'rosparam', param='landmark_covariances').text = '[0.02, 0.005, 0.002, 0.005, 0.005]'  # K1 to K5
 
-    # robot initial poses
-    str_pos_init = '['
-    for robot in robot_list:
-        str_pos_init += str(robot.x) + ', ' + str(robot.y) + ', ' + str(robot.theta) + ', '
-    str_pos_init = str_pos_init[:len(str_pos_init)-2]  # remove last comma and whitespace
-    str_pos_init += ']'
-    ET.SubElement(node_pfuclt, 'rosparam', param='initial_positions').text = str_pos_init
-
     # particle initial ranges
-    str_particles = '['
-    for robot in robot_list:
-        for var in robot.x, robot.y, robot.theta:
-            str_particles += str(var-0.02) + ',' + str(var+0.02) + ','
-    for target in target_list:
-        for var in target.x, target.y, target.z:
-            str_particles += str(var-0.02) + ',' + str(var+0.02) + ','
-    str_particles = str_particles[:len(str_particles)-1] + ']'  # last comma becomes ]
-    ET.SubElement(node_pfuclt, 'rosparam', param='initial_particles').text = str_particles
+    robot_particles_rand = [[
+        [var - 0.05, var + 0.05] for var in robot.x, robot.y, robot.theta
+    ] for robot in robot_list]
+    ET.SubElement(node_pfuclt, 'rosparam', param='init_robot_particles').text = str(robot_particles_rand)
+
+    target_particles_rand = [[
+        [var - 0.05, var + 0.05] for var in target.x, target.y, target.z
+    ] for target in target_list]
+    ET.SubElement(node_pfuclt, 'rosparam', param='init_target_particles').text = str(target_particles_rand)
 
     # node to record everything from pfuclt and evaluate to bag file
     if args.record:
