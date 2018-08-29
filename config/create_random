@@ -248,7 +248,7 @@ if __name__ == '__main__':
     ET.SubElement(pfuclt_launch, 'node', pkg='rosbag', type='play', name='player', required='true', output='screen', args=str_args)
 
     # the pfuclt node
-    node_pfuclt = ET.SubElement(pfuclt_launch, 'node', name='pfuclt',
+    node_pfuclt = ET.SubElement(pfuclt_launch, 'node', name='pfuclt_node',
                                 pkg='pfuclt', type='pfuclt_node', output='screen', required='true',
                                 args='--debug $(arg debug) --publish $(arg publish)')
     ET.SubElement(node_pfuclt, 'param', name='percentage_to_keep', value='50')
