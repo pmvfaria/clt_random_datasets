@@ -119,13 +119,13 @@ class Odometry(object):
         self.values = dict()
 
         # specific robot's odometry topic name
-        topic = '~custom_odometry'
+        topic = '~odometry_generator/odometry'
 
         # publisher of odometry values
         self.publisher = rospy.Publisher(topic, customOdometryMsg, queue_size=100)
 
         # service to change state
-        self.service = rospy.Service('{0}/change_state'.format(topic), SendString, self.service_callback)
+        self.service = rospy.Service('~odometry_generator/change_state', SendString, self.service_callback)
 
         # rate to publish odometry
         self.rate = rospy.Rate(freq)

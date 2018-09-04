@@ -169,7 +169,7 @@ class RobotInfo(object):
 
         self.radius = rospy.get_param('/robots/{0}/radius'.format(self.name), RADIUS_DEFAULT)
         self.height = rospy.get_param('/robots/{0}/height'.format(self.name), HEIGHT_DEFAULT)
-        self.odometry_service_name = '/robots/{0}/custom_odometry/change_state'.format(self.name)
+        self.odometry_service_name = '/robots/{0}/odometry_generator/change_state'.format(self.name)
         self.frame = self.name
         self.local_pose = None  # type: PoseStamped
         self.gt_pose = None  # type: PoseStamped
@@ -303,7 +303,7 @@ class Robot(object):
         self.info.odometry_service_client('WalkForward')
 
         # subscribers
-        self.sub_odometry = rospy.Subscriber('~custom_odometry', CustomOdometry,
+        self.sub_odometry = rospy.Subscriber('~odometry_generator/odometry', CustomOdometry,
                                              callback=self.odometry_callback, queue_size=100)
 
         # publishers
