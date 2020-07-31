@@ -14,7 +14,7 @@ if __name__ == '__main__':
     rospy.init_node('ROBOT_DEFAULT', log_level=LOG_LEVEL)
 
     name = rospy.get_name().split(rospy.get_namespace())[-1]
-    initial_pose = rospy.get_param('~initial_pose', [0.5, 2.0, pi/3])
+    initial_pose = rospy.get_param('~initial_pose', [0.5, 2.0, 0.5, 0.0, pi/3])
 
     odometry_freq = rospy.get_param('~odometry_frequency', ODOMETRY_FREQ_DEFAULT)
 

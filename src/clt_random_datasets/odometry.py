@@ -3,25 +3,28 @@ import random
 from clt_msgs.msg import CustomOdometry as customOdometryMsg
 from clt_msgs.srv import SendString, SendStringResponse
 
-# R1 = Initial Rotation
 # T = Translation
-# R2 = Final Rotation
+# P0 = Initial pitch
+# P1 = Final pitch
+# Y0 = Initial yaw
+# Y1 = Final yaw
 
-# WF = Walking Forward
+# F = Forwarding
 # R = Rotating
-LEFT_T_WF = 0.020
-RIGHT_T_WF = 0.030
-MEAN_R1_WF = 0.000
-STD_R1_WF = 0.002
-MEAN_R2_WF = 0.000
-STD_R2_WF = 0.002
 
-MEAN_T_R = 0
+LEFT_T_F = 0.020
+RIGHT_T_F = 0.030
+MEAN_P_F = 0.0
+STD_P_F = 0.002
+MEAN_Y_F = 0.0
+STD_Y_F = 0.002
+
+MEAN_T_R = 0.0
 STD_T_R = 0.0003
-LEFT_R1_R = 0.00850
-RIGHT_R1_R = 0.01105
-LEFT_R2_R = 0.00900
-RIGHT_R2_R = 0.01110
+LEFT_P_R = 0.0085
+RIGHT_P_R = 0.0115
+LEFT_Y_R = 0.00900
+RIGHT_Y_R = 0.01110
 
 
 class AbstractOdometryStateVar(object):
@@ -71,16 +74,16 @@ class Odometry(object):
     # The Odometry class will give a random value of variation for the translation and rotation variables
     # These variables define the next robot pose when also considering the previous pose
     # 2 states for the generation are considered:
-    #   - Rotate: little variation in translation, high in rotation
-    #   - WalkForward: little variation in rotation, high in translation
+    #   - Forwarding: little variation in translation, high in rotation
+    #   - Rotating: little variation in rotation, high in translation
     # You can use the Odometry object in 2 ways:
     #   - It uses rate.sleep() in its loop which will block if ran in main thread, or can be multi-threaded
     #   - Calling loop_once() followed by rate.sleep()
     #   - Using the get_rand_all, build_msg, and publisher.publish methods to do at your own pace
 
-    stateTypes = dict(WalkForward=0, Rotate=1, RotateInv=2)
-    invStateTypes = {0: 'WalkFoward', 1: 'Rotate', 2: 'RotateInv'}
-    varTypes = dict(t=0, r1=1, r2=2)
+    stateTypes = dict(Forwarding=0, Rotating=1, RotatingInv=2)
+    invStateTypes = {0: 'Forwarding', 1: 'Rotating', 2: 'RotatingInv'}
+    varTypes = dict(t=0, p=1, y=2)
 
     def __init__(self, seed=None, freq=10, frame_id='INVALID'):
         # type: (int, int) -> None
@@ -90,30 +93,31 @@ class Odometry(object):
         """
 
         # state of the odometry generation
-        self._state = Odometry.stateTypes['WalkForward']
+        self._state = Odometry.stateTypes['Forwarding']
         self.last_rotation_state = None
 
         # initiate random seed with current system time if nothing given
         random.seed(seed)
 
         # each variable is a list corresponding to the state
-        self.walkForward = [UniformOdometryStateVar('t',    't_WalkForward',    LEFT_T_WF,  RIGHT_T_WF),
-                            GaussianOdometryStateVar('r1',  'r1_WalkForward',   MEAN_R1_WF, STD_R2_WF),
-                            GaussianOdometryStateVar('r2',  'r2_WalkForward',   MEAN_R2_WF, STD_R2_WF)]
+        self.forwarding = [UniformOdometryStateVar('t',    't_Forwarding',   LEFT_T_F,  RIGHT_T_F),
+                           GaussianOdometryStateVar('p',  'p_Forwarding',  MEAN_P_F, STD_P_F),
+                           GaussianOdometryStateVar('y',  'y_Forwarding',  MEAN_Y_F, STD_Y_F)]
 
-        self.rotate = [GaussianOdometryStateVar('t',   't_Rotate',     MEAN_T_R,   STD_T_R),
-                       UniformOdometryStateVar('r1',   'r1_Rotate',    LEFT_R1_R,  RIGHT_R1_R),
-                       UniformOdometryStateVar('r2',   'r2_Rotate',    LEFT_R2_R,  RIGHT_R2_R)]
+        self.rotating = [GaussianOdometryStateVar('t',   't_Pitching',   MEAN_T_R,  STD_T_R),
+                         UniformOdometryStateVar('p',   'p_Pitching',  LEFT_P_R, RIGHT_P_R),
+                         UniformOdometryStateVar('y',   'y_Yawing',  LEFT_Y_R, RIGHT_Y_R)]
 
-        self.rotate_inv = [GaussianOdometryStateVar('t',   't_RotateInv',     -MEAN_T_R,   STD_T_R),
-                           UniformOdometryStateVar('r1',   'r1_RotateInv',    -RIGHT_R1_R, -LEFT_R1_R),
-                           UniformOdometryStateVar('r2',   'r2_RotateInv',    -RIGHT_R2_R, -LEFT_R2_R)]
+        self.rotating_inv = [GaussianOdometryStateVar('t',   't_Pitching',   -MEAN_T_R,   STD_T_R),
+                             UniformOdometryStateVar('p',   'p_Pitching',  -RIGHT_P_R, -LEFT_P_R),
+                             UniformOdometryStateVar('y',   'y_YawingInv',  -RIGHT_Y_R, -LEFT_Y_R)]
+
 
         # get a list with all variables
         self.var_list = []
-        self.var_list.insert(Odometry.stateTypes['WalkForward'], self.walkForward)
-        self.var_list.insert(Odometry.stateTypes['Rotate'], self.rotate)
-        self.var_list.insert(Odometry.stateTypes['RotateInv'], self.rotate_inv)
+        self.var_list.insert(Odometry.stateTypes['Forwarding'], self.forwarding)
+        self.var_list.insert(Odometry.stateTypes['Rotating'], self.rotating)
+        self.var_list.insert(Odometry.stateTypes['RotatingInv'], self.rotating_inv)
 
         # list of all values
         self.values = dict()
@@ -150,7 +154,7 @@ class Odometry(object):
 
         return res
 
-    # Change state to Rotate or WalkForward
+    # Change state to Rotate or Forwarding
     def change_state(self, new_state):
         # type: (str) -> None
         try:
@@ -158,18 +162,18 @@ class Odometry(object):
                 rospy.logdebug('Desired odometry state is already %s' % new_state)
             else:
 
-                if new_state == 'Rotate':
+                if new_state == 'Rotating':
                     # First rotation state, 50/50 chance
                     if self.last_rotation_state is None:
                         if random.randint(0, 1):
-                            new_state = 'RotateInv'
+                            new_state = 'RotatingInv'
 
                     # 80% chance of keeping the last rotation state, 20% of inverting
                     else:
                         if random.random() < 0.8:
                             new_state = self.last_rotation_state
                         else:
-                            new_state = 'RotateInv' if self.last_rotation_state == 'Rotate' else 'Rotate'
+                            new_state = 'RotatingInv' if self.last_rotation_state == 'Rotating' else 'Rotating'
 
                     # save last rotation state
                     self.last_rotation_state = new_state
@@ -203,10 +207,10 @@ class Odometry(object):
         # populate values dictionary
         try:
             values['t'] = self.get_rand_type('t')
-            values['r1'] = self.get_rand_type('r1')
-            values['r2'] = self.get_rand_type('r2')
+            values['p'] = self.get_rand_type('p')
+            values['y'] = self.get_rand_type('y')
         except KeyError:
-            rospy.logfatal('Dictionary doesnt have t, r1 or r2')
+            rospy.logfatal('Dictionary doesnt have t, p or y')
             raise
 
         return values
@@ -224,9 +228,9 @@ class Odometry(object):
 
         # Insert values into msg
         msg.header.stamp = stamp
-        msg.translation = values['t']
-        msg.rot1 = values['r1']
-        msg.rot2 = values['r2']
+        msg.delta_translation = values['t']
+        msg.delta_yaw = values['y']
+        msg.pitch = values['p']
         msg.state = Odometry.invStateTypes[self._state]
 
         return msg

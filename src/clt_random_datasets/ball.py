@@ -124,7 +124,7 @@ class BallInfo(object):
             pos.point.z
         ])
 
-    def get_local_pos(self):
+    def get_local_pose(self):
         # type: () -> PointStamped
         return self.local_pos
 

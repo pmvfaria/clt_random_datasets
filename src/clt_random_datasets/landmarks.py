@@ -3,7 +3,7 @@ from visualization_msgs.msg import MarkerArray, Marker
 
 
 class Landmark(Marker):
-    def __init__(self, x, y, frame, my_id):
+    def __init__(self, x, y, height, frame, my_id):
 
         # Call base class init
         Marker.__init__(self)
@@ -17,10 +17,14 @@ class Landmark(Marker):
         self.action = Marker.ADD
         self.pose.position.x = x
         self.pose.position.y = y
-        self.pose.position.z = 0.5
+        self.pose.position.z = height * 0.5
+        self.pose.orientation.x = 0.0
+        self.pose.orientation.y = 0.0
+        self.pose.orientation.z = 0.0
+        self.pose.orientation.w = 1.0
         self.scale.x = 0.3
         self.scale.y = 0.3
-        self.scale.z = 1
+        self.scale.z = height
         self.color.a = 1.0
         self.color.r = 0.3
         self.color.g = 0.5
@@ -28,7 +32,7 @@ class Landmark(Marker):
 
 
 class Landmarks:
-    def __init__(self, param='/landmarks', topic='/landmarks'):
+    def __init__(self, param='/landmarks', topic='landmarks'):
 
         # Get parameter from rosparam server
         assert(isinstance(param, str))
@@ -46,7 +50,7 @@ class Landmarks:
         self.marker_array = MarkerArray()
         lm_id = 0
         for lm in lm_list:
-            self.marker_array.markers.append(Landmark(lm[0], lm[1], 'world', lm_id))
+            self.marker_array.markers.append(Landmark(lm[0], lm[1], lm[2], 'world', lm_id))
             lm_id += 1
 
         # Create publisher and publish as latched

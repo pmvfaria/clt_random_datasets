@@ -7,22 +7,22 @@
         <node name="robot1" pkg="clt_random_datasets" type="robot" output="screen">
             <param name="radius" type="double" value="0.5"/>
             <rosparam param="alphas">[0.015, 0.1, 0.5, 0.001]</rosparam>
-            <rosparam param="initial_pose">[0.4, 4.0, 0.3]</rosparam>
+            <rosparam param="initial_pose">[0.4, 4.0, 1.0, 0.3]</rosparam>
         </node>
         <node name="robot2" pkg="clt_random_datasets" type="robot">
             <param name="radius" type="double" value="0.5"/>
              <rosparam param="alphas">[0.015, 0.1, 0.5, 0.001]</rosparam>
-            <rosparam param="initial_pose">[3, 3.0, 0.9]</rosparam>
+            <rosparam param="initial_pose">[3, 3.0, 0.8, 0.9]</rosparam>
        </node>
         <node name="robot3" pkg="clt_random_datasets" type="robot">
             <param name="radius" type="double" value="0.5"/>
             <rosparam param="alphas">[0.015, 0.1, 0.5, 0.001]</rosparam>
-            <rosparam param="initial_pose">[1, 1.5, 2.1]</rosparam>
+            <rosparam param="initial_pose">[1, 1.5, 1.2, 2.1]</rosparam>
         </node>
         <node name="robot4" pkg="clt_random_datasets" type="robot">
             <param name="radius" type="double" value="0.5"/>
             <rosparam param="alphas">[0.015, 0.1, 0.5, 0.001]</rosparam>
-            <rosparam param="initial_pose">[4, 3.3, 3]</rosparam>
+            <rosparam param="initial_pose">[4, 3.3, 1.0, 3]</rosparam>
         </node>
     </group>
 </launch>

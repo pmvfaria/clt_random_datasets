@@ -25,8 +25,9 @@ MAX_DIST_FROM_ROBOTS = 1.0  # meters
 MAX_ANGLE_FROM_ROBOTS = math.radians(0.25)  # radians
 MAX_DIST_FROM_WALLS = 0.2  # meters
 MAX_ANGLE_FROM_WALLS = pi / 2.0  # radians
-RADIUS_DEFAULT = 5.0  # meters, huge on purpose
-HEIGHT_DEFAULT = 1.0  # meters
+MAX_DIST_FROM_LANDMARKS = 0.3 # meters
+RADIUS_DEFAULT = 0.5  # meters
+HEIGHT_DEFAULT = 0.3  # meters
 CYLINDER_SCALE = 0.9  # for visualization
 ALPHAS_DEFAULT = [0.015, 0.1, 0.5, 0.001]
 
@@ -52,7 +53,7 @@ def fnorm(*args):
     return math.sqrt(math.fsum([num**2 for num in args]))
 
 
-def orientation_to_theta(orientation):
+def orientation_to_yaw(orientation):
     # type: (Quaternion) -> float
 
     q = (orientation.x, orientation.y, orientation.z, orientation.w)
@@ -85,20 +86,18 @@ def check_occlusions(sensor, target, radius, obj):
     # This function checks if parameter target is being occluded by the object, when seen from sensor
     # Return is true if object is occluded and false otherwise
 
-    # Note that the checking is done only in the 2D xy plane
-
     # Approach: obtain the minimum distance from object to the line defined by sensor and target
     #           if this distance is lower than radius, then there is occlusion
 
-    # Lists should be x, y
-    assert (len(sensor) == len(target) == len(obj) == 2)
+    # Lists should be x, y, z
+    assert(len(sensor) == len(target) == len(obj) == 3)
 
     # Define vectors from sensor to target and from sensor to object
-    arr_target = np.array([target[0] - sensor[0], target[1] - sensor[1]])
-    arr_object = np.array([obj[0] - sensor[0], obj[1] - sensor[1]])
+    arr_target = np.array([target[0] - sensor[0], target[1] - sensor[1], target[2] - sensor[2]])
+    arr_object = np.array([obj[0] - sensor[0], obj[1] - sensor[1], obj[2] - sensor[2]])
 
     # Special case if target is closer than the object + radius, no occlusion
-    if fnorm(arr_target[0], arr_target[1]) + radius < fnorm(arr_object[0], arr_object[1]):
+    if fnorm(arr_target[0], arr_target[1], arr_target[2]) + radius < fnorm(arr_object[0], arr_object[1], arr_object[2]):
         return False
 
     # Auxiliary unit vector
@@ -138,12 +137,23 @@ def measurement_array_to_markers(msg, namespace):
         marker.ns = namespace
         marker.id = measurement.id
         marker.text = measurement.label
-        if measurement.status == Measurement.OCCLUDED:
-            marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
-        elif measurement.status == Measurement.OUTOFRANGE:
-            marker.color = ColorRGBA(0.8, 0.8, 0.1, 1.0)
+
+        if marker.text == 'landmark':
+            if measurement.status == Measurement.OCCLUDED:
+                marker.color = ColorRGBA(0.2, 0.2, 1.0, 1.0)
+            elif measurement.status == Measurement.OUTOFRANGE:
+                marker.color = ColorRGBA(1.0, 0.4, 1.0, 1.0)
+            else:
+                marker.color = ColorRGBA(0.4, 1.0, 1.0, 1.0)
+
         else:
-            marker.color = ColorRGBA(0.1, 1.0, 0.1, 1.0)
+            if measurement.status == Measurement.OCCLUDED:
+                marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
+            elif measurement.status == Measurement.OUTOFRANGE:
+                marker.color = ColorRGBA(0.9, 0.9, 0.1, 1.0)
+            else:
+                marker.color = ColorRGBA(0.1, 0.6, 0.1, 1.0)
+
         markers.markers.append(marker)
 
     return markers
@@ -196,7 +206,8 @@ class RobotInfo(object):
         return np.array([
             pose.pose.position.x,
             pose.pose.position.y,
-            orientation_to_theta(pose.pose.orientation)
+            pose.pose.position.z,
+            orientation_to_yaw(pose.pose.orientation)
         ])
 
     def get_local_pose(self):
@@ -261,19 +272,23 @@ class Robot(object):
         self.alphas = rospy.get_param('~alphas', ALPHAS_DEFAULT)  # type: list
 
         # save local observations of landmarks
-        # TODO change to something similar to RobotInfo and BallInfo?
         self.landmark_obs_local = []  # type: list(np.array)
 
-        # build walls list from the dictionary
+        # build walls dictionary
         # tuple -> (location, variable to check, reference angle)
         try:
-            self.walls = list()
-            self.walls.append((walls['left'], 0, pi))
-            self.walls.append((walls['right'], 0, 0.0))
-            self.walls.append((walls['down'], 1, -pi / 2.0))
-            self.walls.append((walls['up'], 1, pi / 2.0))
+            self.walls = dict()
+            self.walls['vertical'] = list()
+            self.walls['vertical'].append((walls['left'], 0, pi))
+            self.walls['vertical'].append((walls['right'], 0, 0.0))
+            self.walls['vertical'].append((walls['down'], 1, -pi / 2.0))
+            self.walls['vertical'].append((walls['up'], 1, pi / 2.0))
+            self.walls['horizontal'] = list()
+            self.walls['horizontal'].append((walls['floor'], 2, -pi / 2.0))
+            self.walls['horizontal'].append((walls['ceiling'], 2, pi / 2.0))
+
         except KeyError:
-            rospy.logerr('Parameter /walls does not include left, right, down and up')
+            rospy.logerr('Parameter /walls does not include left, right, down, up, floor and ceiling')
             raise
 
         self.is_running = False
@@ -288,34 +303,39 @@ class Robot(object):
         self.gt_pose_msg.header.frame_id = WORLD_FRAME
 
         # pose marker
-        self.cylinder = Marker(action=Marker.ADD, type=Marker.CYLINDER, color=ColorRGBA(0.5, 0.5, 0.5, 1.0),
-                               ns=self.info.name, id=self.info.idx)
+        self.cylinder = Marker()
         self.cylinder.header.frame_id = self.info.frame
-        self.cylinder.action = Marker.ADD
+        self.cylinder.ns = self.info.name
+        self.cylinder.id = self.info.idx
         self.cylinder.type = Marker.CYLINDER
+        self.cylinder.action = Marker.ADD
+        self.cylinder.color=ColorRGBA(0.5, 0.5, 0.5, 0.8)
         self.cylinder.scale.x = self.cylinder.scale.y = self.info.radius * 2.0 * CYLINDER_SCALE
         self.cylinder.scale.z = self.info.height
-        self.cylinder.pose.position.z = self.info.height/2
-        self.cylinder.color = ColorRGBA(0.5, 0.5, 0.5, 1.0)
+        self.cylinder.pose.position.x = 0.0
+        self.cylinder.pose.position.y = 0.0
+        self.cylinder.pose.position.z = self.info.height / 2.0
+        self.cylinder.pose.orientation.x = 0.0
+        self.cylinder.pose.orientation.y = 0.0
+        self.cylinder.pose.orientation.z = 0.0
+        self.cylinder.pose.orientation.w = 1.0
 
         # odometry service
         self.info.odometry_service_client.wait_for_service(timeout=3)
-        self.info.odometry_service_client('WalkForward')
+        self.info.odometry_service_client('Forwarding')
 
         # subscribers
         self.sub_odometry = rospy.Subscriber('~odometry_generator/odometry', CustomOdometry,
                                              callback=self.odometry_callback, queue_size=100)
 
         # publishers
-        self.pub_odometry = rospy.Publisher('~odometry', CustomOdometry, queue_size=50)
+        self.pub_odometry = rospy.Publisher('~odometry', CustomOdometry, queue_size=10)
         self.pub_gt_pose = rospy.Publisher('~sim_pose', PoseStamped, queue_size=10)
         self.pub_cylinder = rospy.Publisher('/visualization/robot_positions', Marker, queue_size=5)
         self.pub_landmark_observations_custom = rospy.Publisher('~landmark_measurements', MeasurementArray, queue_size=5)
         self.pub_landmark_observations_visualization = rospy.Publisher('/visualization/landmark_obs', MarkerArray, queue_size=5)
         self.pub_target_observations_custom = rospy.Publisher('~target_measurements', MeasurementArray, queue_size=5)
         self.pub_target_observations_visualization = rospy.Publisher('/visualization/target_obs', MarkerArray, queue_size=5)
-        # TODO re-enable robot observations?
-        # self.pub_robot_observations = rospy.Publisher('/visualization/robot_obs', MarkerArray, queue_size=5)
 
         # tf broadcaster
         self.broadcaster = tf.TransformBroadcaster()
@@ -325,8 +345,7 @@ class Robot(object):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         # targets list
-        self.targets = [ball_imp.BallInfo(idx + 1,
-                                          create_callback=True)
+        self.targets = [ball_imp.BallInfo(idx + 1, create_callback=True)
                         for idx in range(num_targets)]
 
         # other robots
@@ -395,6 +414,7 @@ class Robot(object):
 
             # when rotating and no longer flagged for collision, start a timer before walking forward again
             if self.is_rotating and not collision:
+
                 # keep rotating for 0 < rand < 1 secs
                 rospy.Timer(rospy.Duration(nsecs=random.randint(0, 1e9)), self.stop_rotating, oneshot=True)
                 self.rotating_timer_set = True
@@ -402,7 +422,7 @@ class Robot(object):
             # when walking forward if collision detected, start rotating
             elif not self.is_rotating and collision:
                 try:
-                    self.info.odometry_service_client('Rotate')
+                    self.info.odometry_service_client('Rotating')
                 except rospy.ServiceException:
                     rospy.logdebug('Error calling change_state service')
                 self.is_rotating = True
@@ -417,10 +437,12 @@ class Robot(object):
         # update pose with new odometry
         try:
             # rotate, translate, rotate
-            self.pose[2] += msg.rot1
-            self.pose[0] += msg.translation * math.cos(self.pose[2])
-            self.pose[1] += msg.translation * math.sin(self.pose[2])
-            self.pose[2] = normalize_angle(self.pose[2] + msg.rot2)
+            # pose[0] = x, pose[1] = y, pose[2] = z, pose[3] = pitch, pose[4] = yaw
+            self.pose[3] = normalize_angle(self.pose[3] + msg.pitch)
+            self.pose[4] = normalize_angle(self.pose[4] + msg.delta_yaw)
+            self.pose[0] += msg.delta_translation * math.cos(self.pose[4]) * abs(math.cos(self.pose[3]))
+            self.pose[1] += msg.delta_translation * math.sin(self.pose[4]) * abs(math.cos(self.pose[3]))
+            self.pose[2] += msg.delta_translation * math.sin(self.pose[3])
 
         except TypeError, err:
             rospy.logfatal('TypeError: reason - %s', err)
@@ -436,7 +458,7 @@ class Robot(object):
 
     def stop_rotating(self, _):
         try:
-            self.info.odometry_service_client('WalkForward')
+            self.info.odometry_service_client('Forwarding')
         except rospy.ServiceException:
             rospy.logdebug('Error calling change_state service')
         self.is_rotating = False
@@ -446,42 +468,42 @@ class Robot(object):
         # type: (CustomOdometry) -> CustomOdometry
 
         alphas = self.alphas
-        r1abs = abs(msg.rot1)
-        r2abs = abs(msg.rot2)
-        t = msg.translation
+        pabs = abs(self.pose[3])
+        yabs = abs(msg.delta_yaw)
+        t = msg.delta_translation
 
         # Add noise according to the odometry motion model
-        rot1_hat = msg.rot1 + random.gauss(0, alphas[0] * r1abs + alphas[1] * t)
-        trans_hat = msg.translation + random.gauss(0, alphas[2] * t + alphas[3] * (r1abs + r2abs))
-        rot2_hat = msg.rot2 + random.gauss(0, alphas[0] * r2abs + alphas[1] * t)
+        pitch_hat = self.pose[3] + random.gauss(0, alphas[1] * t)
+        yaw_hat = msg.delta_yaw + random.gauss(0, (alphas[0] * yabs + alphas[1] * t))
+        trans_hat = msg.delta_translation + random.gauss(0, alphas[2] * t + alphas[3] * yabs)
 
         converted_msg = CustomOdometry(
             header=msg.header,
-            rot1=rot1_hat,
-            translation=trans_hat,
-            rot2=rot2_hat,
+            delta_translation=trans_hat,
+            delta_yaw=yaw_hat,
+            pitch=pitch_hat,
             state=msg.state
         )
 
         return converted_msg
 
     def pose_to_str(self):
-        return 'Current pose:\nx={0}\ny={1}\ntheta={2}'.format(self.pose[0], self.pose[1], self.pose[2])
+        return 'Current pose:\nx={0}\ny={1}\nz={2}\nyaw={3}'.format(self.pose[0], self.pose[1], self.pose[2], self.pose[3])
 
     def publish_gt_pose(self, stamp=None):
         if stamp is None:
             stamp = rospy.Time.now()
 
-        quaternion = tf.transformations.quaternion_about_axis(self.pose[2], [0, 0, 1])
+        quaternion = tf.transformations.quaternion_about_axis(self.pose[4], [0, 0, 1])
 
-        self.broadcaster.sendTransform([self.pose[0], self.pose[1], 0],
+        self.broadcaster.sendTransform([self.pose[0], self.pose[1], self.pose[2]],
                                        quaternion,
                                        stamp,
                                        self.info.frame,
                                        WORLD_FRAME)
 
         self.gt_pose_msg.header.stamp = stamp
-        self.gt_pose_msg.pose.position = Point(x=self.pose[0], y=self.pose[1], z=0)
+        self.gt_pose_msg.pose.position = Point(x=self.pose[0], y=self.pose[1], z=self.pose[2])
         self.gt_pose_msg.pose.orientation = Quaternion(x=quaternion[0], y=quaternion[1], z=quaternion[2],
                                                        w=quaternion[3])
 
@@ -499,11 +521,13 @@ class Robot(object):
             rospy.logdebug('ROSException - %s', err)
 
     def generate_landmark_observations(self, _):
+
         msg = MeasurementArray()
         msg.header.frame_id = self.info.frame
 
         # Use latest time available, should correspond to the latest tf sent by this robot
         msg.header.stamp = rospy.Time(0)
+
         meas = Measurement()
 
         pos_global = PointStamped()
@@ -517,7 +541,7 @@ class Robot(object):
             # Position in world frame, static
             pos_global.point.x = landmark[0]
             pos_global.point.y = landmark[1]
-            pos_global.point.z = 0  # TODO self.info.height ?
+            pos_global.point.z = landmark[2]
 
             # Calc. the observation in the local frame
             try:
@@ -545,30 +569,45 @@ class Robot(object):
             oor = dist > self.threshold_obs_landmark
 
             # Check for occlusions
-            occlusion = dist < self.info.radius
+            occlusion = False
+            # Check against all other robots
+            for robot in self.other_robots:
+                pose_local = robot.get_local_pose()
+                if pose_local is None:
+                    continue
+
+                occlusion = check_occlusions([0, 0, 0],
+                                             pos_local_noisy_np,
+                                             robot.radius,
+                                             [pose_local.pose.position.x, pose_local.pose.position.y, pose_local.pose.position.z])
+                if occlusion:
+                    break
+
+            # Check against all other targets
             if not occlusion:
-                # Check against all other robots
-                for robot in self.other_robots:
-                    pose_local = robot.get_local_pose()
+                for target in self.targets:
+                    pose_local = target.get_local_pose()
                     if pose_local is None:
                         continue
 
-                    occlusion = check_occlusions([0, 0],
-                                                 pos_local_noisy_np[0:2],
-                                                 robot.radius,
-                                                 [pose_local.pose.position.x, pose_local.pose.position.y])
+                    occlusion = check_occlusions([0, 0, 0],
+                                                 pos_local_noisy_np,
+                                                 target.radius,
+                                                 [pose_local.point.x, pose_local.point.y, pose_local.point.z])
                     if occlusion:
                         break
 
             # Fill the single measurement
-            meas.label = Measurement.LANDMARK_RANGE_BEARING
+            meas.type = Measurement.LANDMARK_RANGE_BEARING
             meas.label = 'landmark'
             meas.id = id_counter
             meas.robot = self.info.idx
             meas.center.x, meas.center.y, meas.center.z = pos_local_noisy_np
             meas.noise = np.linalg.norm(noises)
-            meas.range = dist
-            meas.bearing = np.arctan2(pos_local_np[1], pos_local_np[0])
+            meas.distance = dist
+            meas.azimuth = np.arctan2(pos_local_noisy_np[1], pos_local_noisy_np[0])
+            meas.elevation = np.arcsin(pos_local_noisy_np[2] / dist)
+            # TODO: Do to Measurement.PARTIAL
             if occlusion:
                 meas.status = Measurement.OCCLUDED
             elif oor:
@@ -594,9 +633,10 @@ class Robot(object):
     def generate_target_observations(self, _):
 
         msg = MeasurementArray()
-        meas = Measurement()
-        msg.header.stamp = rospy.Time.now()
         msg.header.frame_id = self.info.frame
+        msg.header.stamp = rospy.Time(0)
+
+        meas = Measurement()
 
         for target in self.targets:
             if not target.pose_ever_received:
@@ -622,27 +662,47 @@ class Robot(object):
             oor = dist > self.threshold_obs_target
 
             # Check for occlusions
-            occlusion = dist < self.info.radius
-            if not occlusion:
-                # Check against all other robots
-                for robot in self.other_robots:
-                    pose_local = robot.get_local_pose()
-                    if pose_local is None:
-                        continue
+            occlusion = False
+            # Check against all other robots
+            for robot in self.other_robots:
+                pose_local = robot.get_local_pose()
+                if pose_local is None:
+                    continue
 
-                    occlusion = check_occlusions([0, 0],
-                                                 pos_local_noisy_np[0:2],
-                                                 robot.radius,
-                                                 [pose_local.pose.position.x, pose_local.pose.position.y])
-                    if occlusion:
-                        break
+                occlusion = check_occlusions([0, 0, 0],
+                                             pos_local_noisy_np,
+                                             robot.radius,
+                                             [pose_local.pose.position.x, pose_local.pose.position.y, pose_local.pose.position.z])
+                if occlusion:
+                    break
+
+            # Check against all other targets
+            if not occlusion:
+                for other_target in self.targets:
+                    if other_target.idx != target.idx:
+                        pose_local = other_target.get_local_pose()
+                        if pose_local is None:
+                            continue
+
+                        occlusion = check_occlusions([0, 0, 0],
+                                                     pos_local_noisy_np,
+                                                     other_target.radius,
+                                                     [pose_local.point.x, pose_local.point.y, pose_local.point.z])
+                        if occlusion:
+                            break
 
             # Fill the single measurement
+            meas.type = Measurement.TARGET_RANGE_BEARING
             meas.label = 'ball'
             meas.id = target.idx
             meas.robot = self.info.idx
             meas.center.x, meas.center.y, meas.center.z = pos_local_noisy_np
             meas.noise = np.linalg.norm(noises)
+            meas.distance = dist
+            meas.azimuth = np.arctan2(pos_local_noisy_np[1], pos_local_noisy_np[0]) 
+            meas.elevation = np.arcsin(pos_local_noisy_np[2] / dist)
+
+            # TODO: Do to Measurement.PARTIAL
             if occlusion:
                 meas.status = Measurement.OCCLUDED
             elif oor:
@@ -699,10 +759,10 @@ class Robot(object):
                 if other_pose_local is None:
                     continue
 
-                if check_occlusions([0, 0],
-                                    [pose_local.pose.position.x, pose_local.pose.position.y],
+                if check_occlusions([0, 0, 0],
+                                    [pose_local.pose.position.x, pose_local.pose.position.y, pose_local.pose.position.z],
                                     other_robot.radius,
-                                    [other_pose_local.pose.position.x, other_pose_local.pose.position.y]):
+                                    [other_pose_local.pose.position.x, other_pose_local.pose.position.y, other_pose_local.pose.position.z]):
                     # Red color
                     marker.color = ColorRGBA(1.0, 0.1, 0.1, 1.0)
                     marker.text = 'NotSeen'
@@ -727,7 +787,7 @@ class Robot(object):
             if pose_local is None:
                 continue
 
-            dist = fnorm(pose_local.pose.position.x, pose_local.pose.position.y)
+            dist = fnorm(pose_local.pose.position.x, pose_local.pose.position.y, pose_local.pose.position.z)
             ang = normalize_angle(math.atan2(pose_local.pose.position.y, pose_local.pose.position.x))
 
             # if next to other robot and going to walk into it, return collision
@@ -741,19 +801,26 @@ class Robot(object):
     def check_collisions_world(self):
         # type () -> boolean
 
-        for location, variable, reference_angle in self.walls:
+        for location, variable, reference_angle in self.walls['vertical']:
             if abs(self.pose[variable] - location) < (self.info.radius + MAX_DIST_FROM_WALLS) and \
-                    abs(normalize_angle(self.pose[2] - reference_angle)) < MAX_ANGLE_FROM_WALLS:
+                    abs(normalize_angle(self.pose[4] - reference_angle)) < MAX_ANGLE_FROM_WALLS:
+                # Future collision detected
+                return True
+
+        for location, variable, reference_angle in self.walls['horizontal']:
+            if abs(self.pose[variable] - location) < (self.info.height + MAX_DIST_FROM_WALLS) and \
+                    abs(normalize_angle(self.pose[3] - reference_angle)) < MAX_ANGLE_FROM_WALLS:
                 # Future collision detected
                 return True
 
         if self.landmark_obs_local is not None:
             for obs in self.landmark_obs_local:  # type: np.array
-                dist = fnorm(obs[0], obs[1])
+                dist_xy = fnorm(obs[0], obs[1])
                 ang = normalize_angle(math.atan2(obs[1], obs[0]))
 
                 # if close to landmark and going to walk into it, return collision
-                if obs[0] > 0 and dist < (self.info.radius + 0.3) and abs(ang) < pi / 3:
+                if obs[0] > 0 and dist_xy < (self.info.radius + MAX_DIST_FROM_LANDMARKS) and abs(ang) < pi / 3 and \
+                        obs[2] > -MAX_DIST_FROM_LANDMARKS:
                     return True
 
         # No collision
