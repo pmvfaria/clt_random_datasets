@@ -21,7 +21,7 @@ The following modules are available in this dataset generator:
 
 * [ROS](https://www.ros.org). Tested with ROS Indigo and Kinetic.
 * [rviz](https://wiki.ros.org/rviz) for visualization.
-* [clt_msgs] (TODO fix url)
+* [clt_msgs](https://github.com/pmvfaria/clt_msgs)
 
 ## How to Use
 
