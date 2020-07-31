@@ -27,7 +27,7 @@ The following modules are available in this dataset generator:
 
 To generate sample data, follow these steps:
 
-1. Clone and build this package with the *read\_omni\_dataset* submodule: `git clone --recursive https://github.com/guilhermelawless/randgen_omni_dataset.git && catkin_make`
+1. Clone and build this package with the *clt\_msgs* submodule: `git clone --recursive https://github.com/pmvfaria/clt_msgs && catkin_make`
 2. Execute one of the following scripts with `python <script>`:
   * If you don't need recording to a rosbag, use the *config/**create\_launch\_file*** script, followed by the number of robots you desire
     * This script creates the new.launch file in the launch directory
@@ -36,7 +36,7 @@ To generate sample data, follow these steps:
   * If you need recording to a rosbag, use the *config/**create\_launch\_record*** script, followed by the number of robots you desire
     * This script creates the new.launch file in the launch directory
     * You should use the --help option to learn how to specify the many optional parameters
-3. Run: `roslaunch randgen_omni_dataset new.launch` and the simulation will begin
+3. Run: `roslaunch clt_random_datasets new.launch` and the simulation will begin
 4. (optional) if you want to visualize the simulation, run rviz and load the configuration *rviz.rviz* in the config directory (up to 10 robots, but customizable)
 
 ## Contribute
@@ -47,14 +47,14 @@ At the moment, the target simulation is quite rough, and contributions to this m
 
 ## Using with PF-UCLT
 
-After recording to a rosbag file, you can use [pfuclt\_omni\_dataset](https://github.com/guilhermelawless/pfuclt_omni_dataset) to try localization and target tracking.
+After recording to a rosbag file, you can use [pfuclt](https://github.com/pmvfaria/pfuclt) to try localization and target tracking.
 
-To accomplish this, when executing the create\_launch\_file script, it will generate a file in your the pfuclt package launch folder to work with it. By default, it will be named new.launch, so you can execute it with: `roslaunch pfuclt_omni_dataset new.launch`
+To accomplish this, when executing the create\_launch\_file script, it will generate a file in your the pfuclt package launch folder to work with it. By default, it will be named new.launch, so you can execute it with: `roslaunch pfuclt new.launch`
 
 The dataset generation is very CPU intensive for a higher number of robots, therefore it is advised to use the create\_launch\_record script and appropriate optional parameters to generate a rosbag of the whole dataset. The generated launch file will automatically record the dataset. The generated launch file for PF-UCLT will automatically launch the rosbag player when it is used.
 
-If necessary when performing PF-UCLT, use the rate argument of the launch file to set different rosbag playing rates.
+If necessary when performing PF-UCLT+, use the rate argument of the launch file to set different rosbag playing rates.
 
-Use the rviz config file pfuclt\_omni\_dataset/config/omni_sim.rviz to visualize the algorithm in rviz. **Important**: you need to execute rviz only after setting the /use_sim_time parameter to true, which is done by calling the launch file above.
+Use the rviz config file pfuclt/config/pfuclt_datasets.rviz to visualize the algorithm in rviz. **Important**: you need to execute rviz only after setting the /use_sim_time parameter to true, which is done by calling the launch file above.
 
 You will know everything is working if the PF-UCLT node outputs an odometry frequency of 33Hz (by default) almost consistently. If it goes below this value, the algorithm is causing odometry readings to be delayed, so it can't keep up and you should lower the rosbag playing rate.
