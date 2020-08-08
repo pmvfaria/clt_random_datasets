@@ -13,7 +13,7 @@ Due to using multiple ROS nodes, it scales very well across CPU cores. The compu
 The following modules are available in this dataset generator:
 
 * **Robot module** - provides odometry, landmark/target observations, checks collisions, etc. It is the main module.
-* **Ball(Target) module** - Simulates a ball with gravity, hovering, pulling, and collisions with robots, as if a person would be holding the ball by a string and moving it around
+* **Ball(Target) module** - Simulates balls with gravity, hovering, pulling, and collisions with robots, as if a person would be holding the ball by a string and moving it around
 * **Walls module** - Sets up a field with 4 walls surrounding it
 * **Landmarks module** - Loads a configuration file and sets up static landmarks in the stage. Publishes a ROS topic with the landmarks positions
 
