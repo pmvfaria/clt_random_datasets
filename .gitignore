@@ -1,6 +1,0 @@
-# IDE files
-.idea/
-.vscode/
-
-# Python byte code
-*.pyc
