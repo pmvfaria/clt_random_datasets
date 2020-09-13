@@ -1,0 +1,3 @@
+[submodule "clt_msgs"]
+	path = clt_msgs
+	url = https://github.com/pmvfaria/clt_msgs
