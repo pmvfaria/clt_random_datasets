@@ -45,7 +45,7 @@ At the moment, the target simulation is quite rough, and contributions to this m
 
 After recording to a rosbag file, you can use [pfuclt](https://github.com/pmvfaria/pfuclt) to try localization and target tracking.
 
-To accomplish this, when executing the create\_launch\_file script, it will generate a file in your the pfuclt package launch folder to work with it. By default, it will be named new.launch, so you can execute it with: `roslaunch pfuclt new.launch`
+To accomplish this, when executing the create\_random script, it will generate a file in your the pfuclt package launch folder to work with it. By default, it will be named random.launch, so you can execute it with: `roslaunch pfuclt random.launch`
 
 The dataset generation is very CPU intensive for a higher number of robots, therefore it is advised to use the create\_launch\_record script and appropriate optional parameters to generate a rosbag of the whole dataset. The generated launch file will automatically record the dataset. The generated launch file for PF-UCLT will automatically launch the rosbag player when it is used.
 
