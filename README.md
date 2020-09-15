@@ -47,7 +47,7 @@ After recording to a rosbag file, you can use [pfuclt](https://github.com/pmvfar
 
 To accomplish this, when executing the create\_random script, it will generate a file in your the pfuclt package launch folder to work with it. By default, it will be named random.launch, so you can execute it with: `roslaunch pfuclt random.launch`
 
-The dataset generation is very CPU intensive for a higher number of robots, therefore it is advised to use the create\_launch\_record script and appropriate optional parameters to generate a rosbag of the whole dataset. The generated launch file will automatically record the dataset. The generated launch file for PF-UCLT will automatically launch the rosbag player when it is used.
+The dataset generation is very CPU intensive for a higher number of robots, therefore it is advised to use the create\_random script and appropriate optional parameters to generate a rosbag of the whole dataset. The generated launch file will automatically record the dataset. The generated launch file for PF-UCLT will automatically launch the rosbag player when it is used.
 
 If necessary when performing PF-UCLT+, use the rate argument of the launch file to set different rosbag playing rates.
 
