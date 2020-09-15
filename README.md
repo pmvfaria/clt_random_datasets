@@ -27,19 +27,13 @@ The following modules are available in this dataset generator:
 
 To generate sample data, follow these steps:
 
-1. Clone and build this package and *clt\_msgs* package:
-`git clone https://github.com/pmvfaria/clt_msgs`
-`git clone https://github.com/pmvfaria/clt_random_datasets && catkin_make`
-2. Execute one of the following scripts with `python <script>`:
-  * If you don't need recording to a rosbag, use the *config/**create\_launch\_file*** script, followed by the number of robots you desire
-    * This script creates the new.launch file in the launch directory
-    * You can specify optional parameters. Use the --help option to learn about these
-    
-  * If you need recording to a rosbag, use the *config/**create\_launch\_record*** script, followed by the number of robots you desire
-    * This script creates the new.launch file in the launch directory
-    * You should use the --help option to learn how to specify the many optional parameters
-3. Run: `roslaunch clt_random_datasets new.launch` and the simulation will begin
-4. (optional) if you want to visualize the simulation, run rviz and load the configuration *rviz.rviz* in the config directory (up to 10 robots, but customizable)
+1. Clone and build this package with the *clt\_msgs* submodule:
+`git clone --recursive https://github.com/pmvfaria/clt_random_datasets && catkin_make`
+2. Execute the following script with `python config/create_random`:
+  * This script creates the random.launch file in the launch directory
+  * You should use the --help option to learn how to specify the many optional parameters
+3. Run: `roslaunch clt_random_datasets random.launch` and the simulation will begin
+4. (optional) if you want to visualize the simulation, run rviz and load the configuration *clt_datasets.rviz* in the config directory (up to 10 robots, but customizable)
 
 ## Contribute
 
