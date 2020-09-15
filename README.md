@@ -19,7 +19,7 @@ The following modules are available in this dataset generator:
 
 ## Requisites
 
-* [ROS](https://www.ros.org). Tested with ROS Indigo and Kinetic.
+* [ROS](https://www.ros.org). Tested with ROS Kinetic and Melodic.
 * [rviz](https://wiki.ros.org/rviz) for visualization.
 * [clt_msgs](https://github.com/pmvfaria/clt_msgs)
 
