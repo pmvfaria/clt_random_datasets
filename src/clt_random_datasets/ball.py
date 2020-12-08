@@ -250,7 +250,7 @@ class Ball(object):
                     try:
                         rospy.wait_for_service(robot.odometry_service_name, timeout=3)
                     except rospy.ROSException:
-                        rospy.logerr('Timeout while waiting for {}, the simulation will not take it into account'.
+                        rospy.logerr('Timeout while waiting for {} {}, the simulation will not take it into account'.
                                      format(robot.name, self.info.idx))
                         to_delete.append(robot)
 

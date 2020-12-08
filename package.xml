@@ -5,8 +5,8 @@
     <description>
         Generate random datasets for Cooperative Localization and Tracking
     </description>
-    <author email="guilherme.lawless@tecnico.ulisboa.pt">Guilherme Lawless</author>
-    <maintainer email="guilherme.lawless@tecnico.ulisboa.pt">Guilherme Lawless</maintainer>
+    <author email="pedro.m.faria@tecnico.ulisboa.pt">Pedro Faria</author>
+    <maintainer email="pedro.m.faria@tecnico.ulisboa.pt">Pedro Faria</maintainer>
     <license>GPLv3</license>
 
     <buildtool_depend>catkin</buildtool_depend>

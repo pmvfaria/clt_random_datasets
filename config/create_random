@@ -136,7 +136,7 @@ if __name__ == '__main__':
     # create robots
     robot_list = []
     for n in range(1, args.N+1):
-        print 'Creating robot %d...' % n
+        print('Creating robot %d...' % n)
 
         robot = RobotCreation(n,
                               random.uniform(walls['left'], walls['right']),
@@ -156,7 +156,7 @@ if __name__ == '__main__':
 
             col_robots = robot.check_collisions(robot_list)
             if col_robots != -1:
-                print('Try #{} - detected collision with robot {} at: {} , {}'.format(
+                print('Try #{} - detected collision with robot {} at: {} , {}, {}'.format(
                     tries, col_robots, robot_list[col_robots - 1].x, robot_list[col_robots - 1].y, robot_list[col_robots - 1].z))
 
             col_landmarks = robot.check_collisions_landmarks(landmarks)
@@ -170,11 +170,11 @@ if __name__ == '__main__':
             robot.x = random.uniform(walls['left'], walls['right'])
             robot.y = random.uniform(walls['down'], walls['up'])
             robot.z = random.uniform(0.5, 2.5)
-            print 'Trying position {%f, %f, %f}' % (robot.x, robot.y, robot.z)
+            print('Trying position {%f, %f, %f}' % (robot.x, robot.y, robot.z))
 
         # no longer colliding, insert into list and print location
         robot_list.append(robot)
-        print 'Robot %d created at {%f,%f,%f,%f,%f}' % (n, robot.x, robot.y, robot.z, robot.pitch, robot.yaw)
+        print('Robot %d created at {%f,%f,%f,%f,%f}' % (n, robot.x, robot.y, robot.z, robot.pitch, robot.yaw))
 
     # Generate targets in random positions
     target_list = [BallCreation(
