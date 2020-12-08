@@ -19,7 +19,7 @@ The following modules are available in this dataset generator:
 
 ## Requisites
 
-* [ROS](https://www.ros.org). Tested with ROS Indigo and Kinetic.
+* [ROS](https://www.ros.org). Tested with ROS Kinetic and Melodic.
 * [rviz](https://wiki.ros.org/rviz) for visualization.
 * [clt_msgs](https://github.com/pmvfaria/clt_msgs)
 
@@ -27,19 +27,13 @@ The following modules are available in this dataset generator:
 
 To generate sample data, follow these steps:
 
-1. Clone and build this package and *clt\_msgs* package:
-`git clone https://github.com/pmvfaria/clt_msgs`
-`git clone https://github.com/pmvfaria/clt_random_datasets && catkin_make`
-2. Execute one of the following scripts with `python <script>`:
-  * If you don't need recording to a rosbag, use the *config/**create\_launch\_file*** script, followed by the number of robots you desire
-    * This script creates the new.launch file in the launch directory
-    * You can specify optional parameters. Use the --help option to learn about these
-    
-  * If you need recording to a rosbag, use the *config/**create\_launch\_record*** script, followed by the number of robots you desire
-    * This script creates the new.launch file in the launch directory
-    * You should use the --help option to learn how to specify the many optional parameters
-3. Run: `roslaunch clt_random_datasets new.launch` and the simulation will begin
-4. (optional) if you want to visualize the simulation, run rviz and load the configuration *rviz.rviz* in the config directory (up to 10 robots, but customizable)
+1. Clone and build this package with the *clt\_msgs* submodule:
+`git clone --recursive https://github.com/pmvfaria/clt_random_datasets && catkin_make`
+2. Execute the following script with `python config/create_random`:
+  * This script creates the random.launch file in the launch directory
+  * You should use the --help option to learn how to specify the many optional parameters
+3. Run: `roslaunch clt_random_datasets random.launch` and the simulation will begin
+4. (optional) if you want to visualize the simulation, run rviz and load the configuration *clt_datasets.rviz* in the config directory (up to 10 robots, but customizable)
 
 ## Contribute
 
@@ -51,9 +45,9 @@ At the moment, the target simulation is quite rough, and contributions to this m
 
 After recording to a rosbag file, you can use [pfuclt](https://github.com/pmvfaria/pfuclt) to try localization and target tracking.
 
-To accomplish this, when executing the create\_launch\_file script, it will generate a file in your the pfuclt package launch folder to work with it. By default, it will be named new.launch, so you can execute it with: `roslaunch pfuclt new.launch`
+To accomplish this, when executing the create\_random script, it will generate a file in your the pfuclt package launch folder to work with it. By default, it will be named random.launch, so you can execute it with: `roslaunch pfuclt random.launch`
 
-The dataset generation is very CPU intensive for a higher number of robots, therefore it is advised to use the create\_launch\_record script and appropriate optional parameters to generate a rosbag of the whole dataset. The generated launch file will automatically record the dataset. The generated launch file for PF-UCLT will automatically launch the rosbag player when it is used.
+The dataset generation is very CPU intensive for a higher number of robots, therefore it is advised to use the create\_random script and appropriate optional parameters to generate a rosbag of the whole dataset. The generated launch file will automatically record the dataset. The generated launch file for PF-UCLT will automatically launch the rosbag player when it is used.
 
 If necessary when performing PF-UCLT+, use the rate argument of the launch file to set different rosbag playing rates.
 
